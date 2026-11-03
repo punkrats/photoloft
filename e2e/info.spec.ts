@@ -75,6 +75,22 @@ async function dismissToast(page: Page) {
   await expect(toast).toBeHidden()
 }
 
+// Presses the keys before the page draws its next frame, as a fast
+// typist does: the app's animation frames wait until the last key.
+async function pressInOneFrame(page: Page, keys: string[]) {
+  const release = await page.evaluateHandle(() => {
+    const request = window.requestAnimationFrame
+    const held: FrameRequestCallback[] = []
+    window.requestAnimationFrame = callback => -held.push(callback)
+    return () => {
+      window.requestAnimationFrame = request
+      for (const callback of held) request(callback)
+    }
+  })
+  for (const key of keys) await page.keyboard.press(key)
+  await release.evaluate(draw => draw())
+}
+
 async function addToAlbum(page: Page, name: string) {
   await page.keyboard.press('g')
   await page.locator('[data-input="picker"]').fill(name)
@@ -183,15 +199,22 @@ test('sets info on photos and exports it', async ({ page }) => {
     toContainText('Updated the info of 2 photos. Ctrl+Z undoes it.')
 
   // Undo brings the copyright back; redo removes it again, as the
-  // export shows. Keys wait for the dialog to go, or they land in its
-  // fields.
+  // export shows. Keys pressed while Esc closes the dialog act on the
+  // grid: Ctrl+Shift+Z redoes, S stars, and the title field gets
+  // nothing.
   await page.keyboard.press('Control+z')
   await page.getByRole('button', { name: 'Info' }).click()
   await expect(field(page, 'Copyright')).toHaveValue('(c) 2026 Ann Example')
   await expect(field(page, 'Copyright')).toHaveAttribute('placeholder', '')
-  await page.keyboard.press('Escape')
+  await expect(field(page, 'Title')).toBeFocused()
+  const title = await field(page, 'Title').elementHandle()
+  await pressInOneFrame(page, ['Escape', 'Control+Shift+z', 's'])
   await expect(dialog).toBeHidden()
-  await page.keyboard.press('Control+Shift+z')
+  const redo = page.locator('.toolbar').getByTitle('Redo (Ctrl+Shift+Z)')
+  await expect(redo).toBeDisabled()
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  await expect(starred.locator('.nav-count')).toHaveText('2')
+  expect(await title.evaluate(el => (el as HTMLInputElement).value)).toBe('')
 
   await addToAlbum(page, 'Tahiti')
   await exportAlbum(page, async () => {})

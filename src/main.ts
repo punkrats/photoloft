@@ -16,7 +16,7 @@ import {
 import { importEntries } from './importer'
 import { moveInAlbum } from './library'
 import { paint } from './paint'
-import { render, RENDERED } from './render'
+import { flush, render, RENDERED } from './render'
 import {
   currentAlbum, initialState, viewIds, viewSections, type AppState,
   type Point
@@ -194,8 +194,13 @@ function onFocusOut(state: AppState, e: FocusEvent) {
 
 // ─── Keyboard ────────────────────────────────────────────────────────
 
+// Closing a dialog, a rename or the editor leaves its field focused
+// until the next frame removes or hides it. A key pressed meanwhile
+// draws that frame first and then goes to the page.
 function onKey(state: AppState, e: KeyboardEvent) {
-  const el = e.target as HTMLElement
+  flush(state)
+  const target = e.target as HTMLElement
+  const el = target.checkVisibility() ? target : document.body
   if (el instanceof HTMLInputElement && el.dataset.rename) {
     renameKey(state, el, e)
     return

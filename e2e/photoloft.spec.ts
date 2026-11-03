@@ -150,6 +150,22 @@ async function dismissToast(page: Page) {
   await expect(toast).toBeHidden()
 }
 
+// Presses the keys before the page draws its next frame, as a fast
+// typist does: the app's animation frames wait until the last key.
+async function pressInOneFrame(page: Page, keys: string[]) {
+  const release = await page.evaluateHandle(() => {
+    const request = window.requestAnimationFrame
+    const held: FrameRequestCallback[] = []
+    window.requestAnimationFrame = callback => -held.push(callback)
+    return () => {
+      window.requestAnimationFrame = request
+      for (const callback of held) request(callback)
+    }
+  })
+  for (const key of keys) await page.keyboard.press(key)
+  await release.evaluate(draw => draw())
+}
+
 async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
   await dismissToast(page)
   await page.getByRole('button', { name: 'Export' }).first().click()
@@ -493,6 +509,55 @@ test('stars photos to keep', async ({ page }) => {
 
   await page.keyboard.press('Control+z')
   await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-c.jpg'])
+})
+
+test('takes keys pressed right after Esc as shortcuts', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'clip.mp4'])
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  const selected = page.locator('.cell.selected .cell-file')
+  const value = (el: HTMLElement | SVGElement) => (el as HTMLInputElement).value
+
+  // Esc closes the album picker; S in the same frame stars the photo.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('g')
+  const picker = page.locator('[data-input="picker"]')
+  await expect(picker).toBeFocused()
+  const query = await picker.elementHandle()
+  await pressInOneFrame(page, ['Escape', 's'])
+  await expect(page.locator('.dialog')).toBeHidden()
+  await expect(starred.locator('.nav-count')).toHaveText('1')
+  expect(await query.evaluate(value)).toBe('')
+
+  // Esc ends renaming the photo in the editor; S stars it.
+  await cell(page, 'e2e-b.jpg').dblclick()
+  await page.locator('.editor-name').dblclick()
+  const rename = page.locator('.rename-input')
+  await expect(rename).toBeFocused()
+  const name = await rename.elementHandle()
+  await pressInOneFrame(page, ['Escape', 's'])
+  await expect(page.locator('h2.editor-name')).toHaveText('e2e-b.jpg')
+  await expect(starred.locator('.nav-count')).toHaveText('2')
+  expect(await name.evaluate(value)).toBe('e2e-b.jpg')
+
+  // Esc closes the editor from a slider; the arrow moves on in the grid
+  // and leaves the slider alone.
+  const exposure = page.locator('input[data-key="exposure"]')
+  await exposure.focus()
+  const slider = await exposure.elementHandle()
+  await pressInOneFrame(page, ['Escape', 'ArrowLeft'])
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
+  await expect(selected).toHaveText('e2e-a.jpg')
+  expect(await slider.evaluate(value)).toBe('0')
+
+  // The same from the seek bar of a playing video, which stays in the
+  // page while the editor is hidden.
+  await cell(page, 'clip.mp4').click()
+  await page.keyboard.press(' ')
+  await page.locator('.transport-seek').focus()
+  await pressInOneFrame(page, ['Escape', 'ArrowLeft'])
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
+  await expect(selected).toHaveText('e2e-b.jpg')
 })
 
 test('shows every photo while scrolling a large library', async ({ page }) => {

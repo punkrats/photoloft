@@ -10,17 +10,28 @@ export const RENDERED = 'photoloft:rendered'
 export function render(state: AppState) {
   if (state.frame) return
 
-  state.frame = requestAnimationFrame(() => {
-    state.frame = 0
-    try {
-      litRender(app(state), state.root)
-    } catch (error) {
-      showCrash(error)
-      throw error
-    }
-    focusPending(state)
-    state.root.dispatchEvent(new CustomEvent(RENDERED))
-  })
+  state.frame = requestAnimationFrame(() => draw(state))
+}
+
+// Draws a pending render at once, for a key that must find the page as
+// the state already describes it.
+export function flush(state: AppState) {
+  if (!state.frame) return
+
+  cancelAnimationFrame(state.frame)
+  draw(state)
+}
+
+function draw(state: AppState) {
+  state.frame = 0
+  try {
+    litRender(app(state), state.root)
+  } catch (error) {
+    showCrash(error)
+    throw error
+  }
+  focusPending(state)
+  state.root.dispatchEvent(new CustomEvent(RENDERED))
 }
 
 // A failed render leaves the previous screen in place and the app seems

@@ -54,6 +54,19 @@
   for the next frame; use `await expect(locator).toHaveText([...])`.
 - Wait for the sidebar's `[data-saved="true"]` before reloading in a
   test, otherwise the last changes may still be unsaved.
+- `page.keyboard.press` does not wait for a frame, so a second key can
+  arrive while a field the state just closed is still in the page and
+  focused. To press keys within one frame on purpose, replace
+  `window.requestAnimationFrame` from the test and run the held
+  callbacks afterwards; Leaflet keeps the reference it took at load
+  (`Util.requestFn`), so only the app's render waits.
+- An input removed from the page keeps its value: take an
+  `elementHandle()` before and read `el.value` with `evaluate` after,
+  to check what a closed field received.
+- A focused field hidden with `display: none` keeps focus, and takes
+  keys, until the next frame; Chromium then moves focus to the body.
+  `el.checkVisibility()` is false for a removed field and for a
+  hidden one alike.
 
 ## Tooling
 
