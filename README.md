@@ -32,10 +32,15 @@ Photoloft keeps imported photos, edits and albums in its hidden
 - Star keepers with `S` or the star on a thumbnail; the Starred view
   lists them.
 - Add to album (selection bar, editor header, `G`) puts the selection,
-  or the photo shown in the editor, into one or more albums: tick them
-  with a click, or type a name and press Enter (a new name creates the
-  album), then press Add or Ctrl+Enter. Albums that already hold all
-  the photos show ticked and greyed. One Ctrl+Z undoes the whole add.
+  or the photo shown in the editor, into one or more albums. Typing
+  filters the list; Down moves into it, and a click or Space ticks an
+  album and clears the field. Enter or Add adds to the ticked albums
+  and to a new album by the name typed; an existing album's name shows
+  an error instead. Albums that already hold all the photos show
+  ticked and greyed. One Ctrl+Z undoes the whole add.
+- In every dialog Enter presses the main button (the place search keeps
+  Enter for its search), Esc cancels, Up / Down and Tab move between
+  fields, and Space ticks a tick box or presses a button.
 - Auto adjusts exposure, contrast, highlights, shadows, whites, blacks
   and vibrance. White balance has its own Auto button and eyedropper,
   since a guess cannot tell a colour cast from the colour of a scene.

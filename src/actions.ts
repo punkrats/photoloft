@@ -27,7 +27,7 @@ import {
 } from './storage'
 import { localIso } from './mp4'
 import {
-  dateChange, infoChange, newInfoForm, toggledTicks
+  dateChange, infoChange, newInfoForm, pickerAdd, toggledTicks
 } from './ui/dialogs'
 
 type Data = DOMStringMap
@@ -156,16 +156,6 @@ export function addSelectionTo(state: AppState, picks: AlbumPick[]) {
   const count = `${photos.length} ${plural(photos.length)}`
   showToast(state, `Added ${count} to ${where}.`)
   render(state)
-}
-
-// Enter in the album picker: ticks or unticks the highlighted row and
-// clears the field for the next name.
-export function tickHighlighted(state: AppState) {
-  const d = state.dialog
-  if (d?.kind !== 'picker' || !state.library) return
-
-  const ticked = toggledTicks(state.library, d, targets(state), d.index)
-  if (ticked) state.dialog = { ...d, ticked, query: '', index: 0 }
 }
 
 export function commitRename(state: AppState, input: HTMLInputElement) {
@@ -375,23 +365,30 @@ export const clicks: Record<string, Handler> = {
   },
   'open-picker': state => {
     if (!targets(state).length || state.view.kind === 'trash') return
-    state.dialog = { kind: 'picker', query: '', index: 0, ticked: [] }
+    state.dialog = { kind: 'picker', query: '', ticked: [], taken: null }
   },
 
-  // The click moves focus to the tick box; the field takes it back, so
-  // the picker's keys keep working.
+  // A click or Space on a tick box ticks or unticks its row and clears
+  // the field, so leftover filter text never names a new album.
   'pick-album': (state, data) => {
     const d = state.dialog
     if (d?.kind !== 'picker' || !state.library) return
 
     const index = Number(data.index)
     const ticked = toggledTicks(state.library, d, targets(state), index)
-    if (ticked) state.dialog = { ...d, ticked }
-    state.root.querySelector<HTMLElement>('[data-input="picker"]')?.focus()
+    if (ticked) state.dialog = { ...d, ticked, query: '', taken: null }
   },
-  'add-ticked': state => {
+
+  // Add and Enter: adds, or says the typed name is an album already,
+  // or with nothing to add goes to the field.
+  'add-to-albums': state => {
     const d = state.dialog
-    if (d?.kind === 'picker') addSelectionTo(state, d.ticked)
+    if (d?.kind !== 'picker' || !state.library) return
+
+    const { picks, taken } = pickerAdd(state.library, d)
+    if (taken) state.dialog = { ...d, taken }
+    else if (picks.length) addSelectionTo(state, picks)
+    else state.root.querySelector<HTMLElement>('[data-input="picker"]')?.focus()
   },
   'auto-selection': state => void autoSelection(state),
   'open-date': state => openDateDialog(state),
@@ -498,7 +495,7 @@ export function input(state: AppState, el: HTMLInputElement) {
     return
   }
   if (kind === 'picker' && state.dialog?.kind === 'picker') {
-    state.dialog = { ...state.dialog, query: el.value, index: 0 }
+    state.dialog = { ...state.dialog, query: el.value, taken: null }
     render(state)
     return
   }

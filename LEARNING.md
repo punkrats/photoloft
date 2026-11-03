@@ -39,6 +39,15 @@
   then clicks it; the label's own click finds no `data-action` of its
   own. A `data-action` on the checkbox therefore runs once per click,
   and a field that should keep the keys has to take focus back.
+- Focusing a text field from a keydown handler, without
+  `preventDefault()`, sends that key's character to the new field.
+- `click()` on a disabled button does nothing, so pressing a button
+  from a key handler needs no check of its own.
+- lit's `map` reuses elements by position. When a list reorders, a
+  focused row element keeps focus while it shows another item; give
+  rows a key and move focus back after the render.
+- Leaflet gives its map container `tabindex="0"` and pans on the arrow
+  keys while it has focus.
 
 - Chromium applies a video's rotation flag in `videoWidth/Height` and
   in `createImageBitmap(video)`; feeding frames as ImageBitmaps keeps

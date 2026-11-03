@@ -44,7 +44,9 @@ const SHORTCUTS: [string, string][] = [
   ['Drag on empty space', 'Select with a rectangle'],
   ['Ctrl+A, Esc', 'Select all, clear selection'],
   ['G', 'Add the selection or the open photo to an album'],
-  ['Enter, Ctrl+Enter', 'Album dialog: tick an album, add to the ticked'],
+  ['Enter / Esc', 'In a dialog: confirm / cancel'],
+  ['Up / Down, Tab', 'In a dialog: next or previous field'],
+  ['Space on a tick box', 'Tick or untick'],
   ['S', 'Star or unstar photos to keep'],
   ['I', 'Info: title, keywords, author, location'],
   ['Delete', 'Remove from album, or move to trash'],
@@ -133,15 +135,31 @@ export function toggledTicks(
   const row = pickerRows(lib, d, ids)[index]
   if (!row || row.held) return null
   if (!row.ticked) return [...d.ticked, row.pick]
-  return d.ticked.filter(pick => !samePick(pick, row.pick))
+  return d.ticked.filter(pick => pickKey(pick) !== pickKey(row.pick))
 }
 
-// Albums match by id, new ones by name with case ignored.
-function samePick(a: AlbumPick, b: AlbumPick) {
-  if ('id' in a) return 'id' in b && a.id === b.id
-  return 'name' in b && a.name.toLowerCase() === b.name.toLowerCase()
+// What Enter and Add do: add to the ticked albums and to the typed name
+// as a new album, or nothing when the typed name is an album's already
+// (`taken` is that album's name). Held albums are never ticked.
+export function pickerAdd(lib: Library, d: Picker) {
+  const name = d.query.trim()
+  const album = lib.albums
+    .find(a => name && a.name.toLowerCase() === name.toLowerCase())
+  if (album) return { picks: [], taken: album.name }
+
+  const typed = { name }
+  const known = d.ticked.some(pick => pickKey(pick) === pickKey(typed))
+  const picks = !name || known ? d.ticked : [...d.ticked, typed]
+  return { picks, taken: null }
 }
 
+// Albums are told apart by id, new ones by name with case ignored.
+function pickKey(pick: AlbumPick) {
+  return 'id' in pick ? `album:${pick.id}` : `new:${pick.name.toLowerCase()}`
+}
+
+// Each tick box carries its album's key, so focus stays on the album
+// when a render shows the rows in another order.
 function picker(state: AppState, lib: Library, d: Picker) {
   const ids = targets(state)
   const rows = pickerRows(lib, d, ids)
@@ -156,13 +174,14 @@ function picker(state: AppState, lib: Library, d: Picker) {
       data-autofocus
       .value=${live(d.query)}
     >
+    ${d.taken
+      ? html`
+        <p class="picker-hint danger">"${d.taken}" is already an album.</p>
+      `
+      : nothing}
     <div class="picker-list">
       ${rows.map((row, i) => html`
-        <label
-          class=${classMap({
-            'picker-item': true, on: i === d.index, held: row.held
-          })}
-        >
+        <label class=${classMap({ 'picker-item': true, held: row.held })}>
           <span class="checkbox">
             <input
               type="checkbox"
@@ -170,6 +189,7 @@ function picker(state: AppState, lib: Library, d: Picker) {
               ?disabled=${row.held}
               data-action="pick-album"
               data-index=${i}
+              data-focus-key=${pickKey(row.pick)}
             >
             ${'id' in row.pick
               ? html`<i class="icon-book-image"></i> ${row.name}`
@@ -185,10 +205,10 @@ function picker(state: AppState, lib: Library, d: Picker) {
       <button class="button" data-action="close-dialog">Cancel</button>
       <button
         class="button primary"
-        data-action="add-ticked"
-        ?disabled=${!d.ticked.length}
+        data-action="add-to-albums"
+        ?disabled=${!pickerAdd(lib, d).picks.length}
       >
-        Add <kbd>Ctrl+Enter</kbd>
+        Add
       </button>
     </div>
   `

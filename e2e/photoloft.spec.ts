@@ -166,12 +166,11 @@ async function pressInOneFrame(page: Page, keys: string[]) {
   await release.evaluate(draw => draw())
 }
 
-// Ticks the album of that name in the open album dialog, a new one when
-// no album has it, and adds to it.
+// Adds to a new album of that name from the open album dialog.
 async function pickAlbum(page: Page, name: string) {
   await page.locator('[data-input="picker"]').fill(name)
   await page.keyboard.press('Enter')
-  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('.dialog')).toBeHidden()
 }
 
 async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
@@ -379,6 +378,64 @@ test('trashes, undoes, restores and empties the trash', async ({ page }) => {
   await expect(page.locator('.toast')).toContainText('Deleted 1 photo for good')
   const originals = await listFiles(page, ['library', '.library', 'originals'])
   expect(originals).toHaveLength(1)
+})
+
+test('confirms with Enter and moves with Up and Down', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const cancel = dialog.getByRole('button', { name: 'Cancel' })
+  const confirm = dialog.getByRole('button', { name: 'Delete' })
+  const empty = page.getByRole('button', { name: 'Empty trash' })
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('Delete')
+  await page.locator('.nav-item', { hasText: 'Trash' }).click()
+
+  // Focus stays on the button behind the dialog, which counts as the
+  // page: Down goes to the first button and the arrows stop at the
+  // ends. Space presses the focused Cancel.
+  await empty.click()
+  for (const [key, to] of [
+    ['ArrowDown', cancel], ['ArrowDown', confirm], ['ArrowDown', confirm],
+    ['ArrowUp', cancel], ['ArrowUp', cancel]
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(to).toBeFocused()
+  }
+  await page.keyboard.press(' ')
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.cell')).toHaveCount(1)
+
+  // Enter from behind the dialog presses Delete.
+  await empty.click()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.toast')).toContainText('Deleted 1 photo for good')
+})
+
+test('applies a date with Enter once it changes', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const taken = dialog.locator('input[type="datetime-local"]')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-c.jpg'])
+  await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-c.jpg'])
+
+  // Unchanged, Apply is disabled and Enter leaves the dialog open. The
+  // date field keeps Up and Down for its own values.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.getByRole('button', { name: 'Adjust date' }).click()
+  await expect(taken).toBeFocused()
+  await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await expect(taken).toBeFocused()
+
+  await taken.fill('2030-01-01T12:00')
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.toast')).
+    toContainText('Updated the capture times')
+  await expect(names(page)).toHaveText(['e2e-c.jpg', 'e2e-a.jpg'])
 })
 
 test('recovers from damaged library files', async ({ page }) => {
@@ -744,20 +801,22 @@ test('adds photos to several albums at once', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
 
-  // With nothing ticked, Add and Ctrl+Enter do nothing.
+  // With nothing ticked or typed, Add is disabled.
   await cell(page, 'e2e-c.jpg').click()
   await page.keyboard.press('g')
   await expect(add).toBeDisabled()
-  await page.keyboard.press('Control+Enter')
-  await expect(dialog).toBeVisible()
 
-  // Enter ticks each new name and clears the field; the toast counts
-  // more than three albums.
-  for (const name of ['Keepers', 'Rome', 'Atlantic', 'Bora']) {
-    await field.fill(name)
-    await page.keyboard.press('Enter')
+  // Space on the offered new album ticks it and clears the field; the
+  // next name typed on the row goes to the field. A typed name with
+  // ticks adds to all of them, and the toast counts more than three.
+  for (const name of ['Keepers', 'Rome', 'Atlantic']) {
+    await page.keyboard.type(name)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press(' ')
     await expect(field).toHaveValue('')
   }
+  await page.keyboard.type('Bora')
+  await expect(field).toBeFocused()
   await add.click()
   await expect(toast).toContainText('Added 1 photo to 4 albums.')
 
@@ -765,11 +824,13 @@ test('adds photos to several albums at once', async ({ page }) => {
   await cell(page, 'e2e-a.jpg').click()
   await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
   await page.keyboard.press('g')
-  for (const name of ['kee', 'rome', 'Moorea']) {
+  for (const name of ['kee', 'rome']) {
     await page.keyboard.type(name)
-    await page.keyboard.press('Enter')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press(' ')
   }
-  await page.keyboard.press('Control+Enter')
+  await page.keyboard.type('Moorea')
+  await page.keyboard.press('Enter')
   await expect(dialog).toBeHidden()
   await expect(toast).
     toContainText('Added 2 photos to Keepers, Rome and Moorea.')
@@ -816,19 +877,21 @@ test('keeps albums that hold the photos ticked', async ({ page }) => {
   await row('Keepers').click({ force: true })
   await expect(box('Keepers')).toBeChecked()
 
-  // A click ticks Rome and leaves the keys with the field.
+  // A click ticks Rome and leaves focus on it.
   await row('Rome').click()
   await expect(box('Rome')).toBeChecked()
-  await expect(field).toBeFocused()
+  await expect(box('Rome')).toBeFocused()
   await expect(add).toBeEnabled()
 
   // Ticks survive another filter; ticked new albums stay listed until
-  // unticked.
+  // unticked, and the field takes focus when the row goes.
   await page.keyboard.type('Tahiti')
   await expect(row('Rome')).toHaveCount(0)
-  await page.keyboard.press('Enter')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press(' ')
   await page.keyboard.type('Moorea')
-  await page.keyboard.press('Enter')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press(' ')
   await expect(rows).toHaveText([
     'Keepers', 'Rome', 'New album "Tahiti"', 'New album "Moorea"'
   ])
@@ -838,12 +901,91 @@ test('keeps albums that hold the photos ticked', async ({ page }) => {
   await expect(field).toBeFocused()
 
   // Rome gets the photo it lacked.
-  await page.keyboard.press('Control+Enter')
+  await page.keyboard.press('Enter')
   await expect(page.locator('.toast')).
     toContainText('Added 2 photos to Rome and Tahiti.')
   await expect(albumCount(page, 'Rome')).toHaveText('2')
   await expect(albumCount(page, 'Tahiti')).toHaveText('2')
   await expect(albumCount(page, 'Keepers')).toHaveText('2')
+})
+
+test('moves through the album dialog with the keys', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const field = page.locator('[data-input="picker"]')
+  const add = dialog.getByRole('button', { name: 'Add' })
+  const error = dialog.locator('.picker-hint.danger')
+  const rows = dialog.locator('.picker-item')
+  const box = (name: string) =>
+    rows.filter({ hasText: name }).locator('input[type="checkbox"]')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+  for (const name of ['Rome', 'Tahiti']) {
+    await cell(page, 'e2e-b.jpg').click()
+    await page.keyboard.press('g')
+    await pickAlbum(page, name)
+  }
+  await dismissToast(page)
+
+  // Enter with nothing ticked or typed goes to the field.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('g')
+  await expect(field).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(box('Rome')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(field).toBeFocused()
+  await expect(dialog).toBeVisible()
+
+  // Down and Up move between the field and the rows.
+  for (const [key, to] of [
+    ['ArrowDown', box('Rome')], ['ArrowDown', box('Tahiti')],
+    ['ArrowUp', box('Rome')], ['ArrowUp', field], ['ArrowUp', field]
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(to).toBeFocused()
+  }
+
+  // Space ticks the filtered row and clears the field; focus stays on
+  // the album where the full list shows it.
+  await page.keyboard.type('ta')
+  await page.keyboard.press('ArrowDown')
+  await expect(box('Tahiti')).toBeFocused()
+  await page.keyboard.press(' ')
+  await expect(field).toHaveValue('')
+  await expect(box('Tahiti')).toBeChecked()
+  await expect(box('Tahiti')).toBeFocused()
+  await expect(box('Rome')).not.toBeChecked()
+
+  // A letter on a row goes to the field. An album's own name, in any
+  // case, shows an error and adds nothing until the field changes.
+  await page.keyboard.press('t')
+  await expect(field).toBeFocused()
+  await expect(field).toHaveValue('t')
+  await page.keyboard.type('ahiti')
+  await expect(add).toBeDisabled()
+  await page.keyboard.press('Enter')
+  await expect(error).toHaveText('"Tahiti" is already an album.')
+  await expect(dialog).toBeVisible()
+  await expect(box('Tahiti')).toBeChecked()
+  await page.keyboard.press('Backspace')
+  await expect(error).toHaveCount(0)
+
+  // With the field empty, Enter adds to the ticked albums.
+  await field.fill('')
+  await expect(add).toBeEnabled()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.toast')).
+    toContainText('Added 1 photo to Tahiti.')
+  await expect(albumCount(page, 'Tahiti')).toHaveText('2')
+
+  // A new name typed: Enter creates the album and adds to it.
+  await page.keyboard.press('g')
+  await page.keyboard.type('Moorea')
+  await expect(add).toBeEnabled()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(albumCount(page, 'Moorea')).toHaveText('1')
 })
 
 test('clears what the last import put in no album', async ({ page }) => {

@@ -1,6 +1,6 @@
 import {
   addSelectionTo, change, clicks, commitRename, doubleClicks, input,
-  removeSelection, tickHighlighted
+  removeSelection
 } from './actions'
 import { commit, redoChange, saveNow, undoChange } from './commit'
 import {
@@ -21,11 +21,21 @@ import {
   viewSections, type AppState, type Point
 } from './state'
 import { hasAccess, rememberedLibrary } from './storage'
-import { pickerRows } from './ui/dialogs'
 import { loadVisibleThumbs } from './thumbs'
 
 const PHOTOS_TYPE = 'application/x-photoloft-photos'
 const TOAST_MS = 5000
+
+// A dialog's main button, which Enter presses.
+const MAIN = '.dialog-buttons .button.primary, .dialog-buttons .button.danger'
+
+// What Up and Down move through, in the order Tab uses.
+const CONTROLS = 'input, select, textarea, button, a[href], [tabindex]'
+
+// Controls whose own keys include Up and Down.
+const ARROW_CONTROLS =
+  'select, input[type="range"], input[type="number"], ' +
+  'input[type="datetime-local"], .leaflet-container, .leaflet-container *'
 
 const root = document.getElementById('app')!
 const state = initialState(root)
@@ -204,8 +214,8 @@ function onKey(state: AppState, e: KeyboardEvent) {
     renameKey(state, el, e)
     return
   }
-  if (el instanceof HTMLInputElement && el.dataset.input === 'picker') {
-    pickerKey(state, e)
+  if (state.dialog) {
+    dialogKey(state, el, e)
     return
   }
 
@@ -237,24 +247,45 @@ function renameKey(state: AppState, el: HTMLInputElement, e: KeyboardEvent) {
   render(state)
 }
 
-// Arrows move the highlight, Enter ticks or unticks the highlighted
-// row, Ctrl+Enter adds to the ticked albums, Esc closes.
-function pickerKey(state: AppState, e: KeyboardEvent) {
-  const d = state.dialog
-  if (d?.kind !== 'picker' || !state.library) return
+// One handler for every dialog; focus outside it counts as the body.
+// The album dialog's Enter also answers while Add is disabled, and a
+// letter on one of its rows goes to its field.
+function dialogKey(state: AppState, el: HTMLElement, e: KeyboardEvent) {
+  const dialog = state.root.querySelector<HTMLElement>('[data-dialog]')
+  if (!dialog) return
+  const inside = dialog.contains(el) ? el : null
 
-  const moves: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 }
-  if (e.key in moves) {
-    e.preventDefault()
-    const last = pickerRows(state.library, d, targets(state)).length - 1
-    const index = Math.max(0, Math.min(last, d.index + moves[e.key]))
-    state.dialog = { ...d, index }
+  if (e.key === 'Escape') {
+    escape(state)
+  } else if (e.ctrlKey || e.metaKey || e.altKey) {
+    return
+  } else if (e.key === 'Enter') {
+    if (inside?.matches('button, a[href], form *')) return
+    if (state.dialog?.kind === 'picker') clicks['add-to-albums'](state, {}, e)
+    else dialog.querySelector<HTMLElement>(MAIN)?.click()
+  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (inside?.matches(ARROW_CONTROLS)) return
+    moveFocus(dialog, el, e.key === 'ArrowDown' ? 1 : -1)
+  } else if (e.key === ' ') {
+    if (inside) return
+  } else {
+    const row = inside?.matches('[data-action="pick-album"]')
+    const field = dialog.querySelector<HTMLElement>('[data-input="picker"]')
+    if (row && e.key.length === 1) field?.focus()
+    return
   }
-  const enter = e.key === 'Enter'
-  if (enter && (e.ctrlKey || e.metaKey)) clicks['add-ticked'](state, {}, e)
-  else if (enter) tickHighlighted(state)
-  if (e.key === 'Escape') state.dialog = null
+  e.preventDefault()
   render(state)
+}
+
+// Moves to the previous or next enabled control and stops at the ends.
+// From outside the dialog, both go to the first control.
+function moveFocus(dialog: HTMLElement, el: HTMLElement, step: number) {
+  const controls = [...dialog.querySelectorAll<HTMLElement>(CONTROLS)]
+    .filter(c => !c.matches(':disabled, [tabindex="-1"]'))
+    .filter(c => c.checkVisibility())
+  const at = controls.indexOf(el)
+  controls[Math.max(0, Math.min(controls.length - 1, at + step))]?.focus()
 }
 
 function shortcut(state: AppState, e: KeyboardEvent) {
@@ -264,7 +295,6 @@ function shortcut(state: AppState, e: KeyboardEvent) {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key
 
   if (key === 'Escape') return escape(state)
-  if (state.dialog) return false
   if (key === '?') {
     state.dialog = { kind: 'help' }
     return true

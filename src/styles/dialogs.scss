@@ -63,7 +63,7 @@ $indent: calc(#{$label-width} + var(--space-2));
   cursor: pointer;
 
   &:hover,
-  &.on {
+  &:has(:focus-visible) {
     background: var(--surface-hover);
   }
 
@@ -77,6 +77,11 @@ $indent: calc(#{$label-width} + var(--space-2));
 .picker-hint {
   margin: 0;
   color: var(--text-muted);
+
+  // Why Enter added nothing.
+  &.danger {
+    color: var(--danger);
+  }
 }
 
 // ─── Export form ─────────────────────────────────────────────────────

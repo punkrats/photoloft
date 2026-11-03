@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { emptyLibrary, migrate } from '../src/library'
 import type { AlbumPick, Picker } from '../src/state'
-import { pickerRows, toggledTicks } from '../src/ui/dialogs'
+import { pickerAdd, pickerRows, toggledTicks } from '../src/ui/dialogs'
 
 // Keepers holds both photos asked about, Rome one of them, Atlantic
 // none.
@@ -16,7 +16,7 @@ const LIB = migrate({
 const IDS = ['a', 'b']
 
 function picker(query: string, ticked: AlbumPick[] = []): Picker {
-  return { kind: 'picker', query, index: 0, ticked }
+  return { kind: 'picker', query, ticked, taken: null }
 }
 
 function names(query: string, ticked: AlbumPick[] = []) {
@@ -87,5 +87,36 @@ describe('toggledTicks', () => {
   it('leaves a held album and a missing row alone', () => {
     expect(toggledTicks(LIB, picker('', ticked), IDS, 1)).toBeNull()
     expect(toggledTicks(LIB, picker('', ticked), IDS, 9)).toBeNull()
+  })
+})
+
+describe('pickerAdd', () => {
+  const add = (query: string, ticked: AlbumPick[] = []) =>
+    pickerAdd(LIB, picker(query, ticked))
+
+  it('adds nothing without ticks or text; held albums do not count', () => {
+    expect(add('')).toEqual({ picks: [], taken: null })
+    expect(add('  ')).toEqual({ picks: [], taken: null })
+  })
+
+  it('adds to the ticked albums when the field is empty', () => {
+    const ticked = [{ id: 'rome' }, { name: 'Moorea' }]
+    expect(add('', ticked)).toEqual({ picks: ticked, taken: null })
+  })
+
+  it('adds the typed name as a new album after the ticked ones', () => {
+    expect(add(' Bora ')).toEqual({ picks: [{ name: 'Bora' }], taken: null })
+    expect(add('Bora', [{ id: 'rome' }])).
+      toEqual({ picks: [{ id: 'rome' }, { name: 'Bora' }], taken: null })
+  })
+
+  it('adds a ticked new album once when its name is typed again', () => {
+    const ticked = [{ name: 'Moorea' }]
+    expect(add('MOOREA', ticked)).toEqual({ picks: ticked, taken: null })
+  })
+
+  it('adds nothing for an existing album name, case ignored', () => {
+    expect(add('rome', [{ id: 'atl' }])).toEqual({ picks: [], taken: 'Rome' })
+    expect(add(' keepers ')).toEqual({ picks: [], taken: 'Keepers' })
   })
 })

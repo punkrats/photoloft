@@ -53,14 +53,15 @@ export type InfoForm = {
 // one by the name typed for it.
 export type AlbumPick = { id: string } | { name: string }
 
-// The album picker: the filter typed, the highlighted row and the
-// albums ticked, in the order ticked. Albums that hold every one of the
-// photos show ticked without being listed here.
+// The album picker: the filter typed and the albums ticked, in the
+// order ticked. Albums that hold every one of the photos show ticked
+// without being listed here. `taken` is the album whose name Enter
+// found in the field, shown as an error until the field changes.
 export type Picker = {
   kind: 'picker'
   query: string
-  index: number
   ticked: AlbumPick[]
+  taken: string | null
 }
 
 export type Dialog =

@@ -24,13 +24,15 @@ export function flush(state: AppState) {
 
 function draw(state: AppState) {
   state.frame = 0
+  const active = document.activeElement as HTMLElement | null
+  const key = active?.dataset?.focusKey
   try {
     litRender(app(state), state.root)
   } catch (error) {
     showCrash(error)
     throw error
   }
-  focusPending(state)
+  focusPending(state, key)
   state.root.dispatchEvent(new CustomEvent(RENDERED))
 }
 
@@ -47,10 +49,21 @@ function showCrash(error: unknown) {
     `${what} Your library is safe. Please reload, and report this message.`
 }
 
-// Inputs that appear in this render (rename fields, the album picker)
-// get focus once.
-function focusPending(state: AppState) {
-  const input = state.root.querySelector<HTMLInputElement>(
+// Inputs that appear in this render (rename fields, a dialog's first
+// field) get focus once. lit reuses elements by position, so a focused
+// `data-focus-key` row that now shows another item hands focus to its
+// key, or to the dialog's first field when that item is gone.
+function focusPending(state: AppState, key: string | undefined) {
+  const root = state.root
+  const active = document.activeElement as HTMLElement | null
+  if (key && active?.dataset?.focusKey !== key) {
+    const keyed = `[data-focus-key="${CSS.escape(key)}"]`
+    const target = root.querySelector<HTMLElement>(keyed) ??
+      root.querySelector<HTMLElement>('[data-dialog] [data-autofocus]')
+    target?.focus()
+  }
+
+  const input = root.querySelector<HTMLInputElement>(
     '[data-rename], [data-autofocus]'
   )
   if (!input || input === document.activeElement) return

@@ -91,11 +91,11 @@ async function pressInOneFrame(page: Page, keys: string[]) {
   await release.evaluate(draw => draw())
 }
 
+// Adds the selection to a new album of that name and opens it.
 async function addToAlbum(page: Page, name: string) {
   await page.keyboard.press('g')
   await page.locator('[data-input="picker"]').fill(name)
   await page.keyboard.press('Enter')
-  await page.keyboard.press('Control+Enter')
   await page.locator('.nav-item', { hasText: name }).click()
 }
 
@@ -241,6 +241,45 @@ test('sets info on photos and exports it', async ({ page }) => {
   expect(b['XMP-dc:Title']).toBeUndefined()
   expect(position(b)?.[0]).toBeCloseTo(-16.500389, 4)
   expect(position(b)?.[1]).toBeCloseTo(-151.7415, 4)
+})
+
+test('moves through the Info dialog with the keys', async ({ page }) => {
+  const searches = await stubNetwork(page)
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await dismissToast(page)
+  const dialog = page.locator('.dialog')
+  const search = dialog.getByPlaceholder('Search a place or paste')
+
+  // Down and Up move between the fields and stop at the first.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('i')
+  await expect(field(page, 'Title')).toBeFocused()
+  for (const [key, label] of [
+    ['ArrowDown', 'Description'], ['ArrowDown', 'Keywords'],
+    ['ArrowUp', 'Description'], ['ArrowUp', 'Title'], ['ArrowUp', 'Title']
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(field(page, label)).toBeFocused()
+  }
+  await page.keyboard.type('Lagoon')
+
+  // Enter in the place search searches and keeps the dialog open; the
+  // map keeps the arrows.
+  await search.fill('Matira')
+  await search.press('Enter')
+  await expect(dialog.getByRole('button', { name: /Matira/ })).toBeVisible()
+  expect(searches).toHaveLength(1)
+  await expect(page.locator('.toast')).toBeHidden()
+  await page.locator('.place-map').focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.place-map')).toBeFocused()
+
+  // Enter in a field presses Apply.
+  await field(page, 'Title').press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.toast')).
+    toContainText('Updated the info of 1 photo')
 })
 
 test('starts at the camera location and can remove it', async ({ page }) => {
