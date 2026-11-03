@@ -40,8 +40,9 @@ Photoloft keeps imported photos, edits and albums in its hidden
   Hovering a thumbnail shows the date taken or file size when sorted by
   them.
 
-- Space shows the selected photo large (arrows step, Space or Esc
-  returns, Enter edits).
+- Space opens the selected photo in the editor, like Enter or a
+  double-click; arrows step, Space again returns to the grid. On a
+  video Space plays and pauses, and Esc returns.
 - Last import lists what the latest import added, with a button that
   moves its photos in no album to the Trash. In albums shows every
   album's photos on one page.

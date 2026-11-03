@@ -48,11 +48,6 @@ export function openPhoto(state: AppState, id: string) {
   void loadCurrent(state)
 }
 
-export function previewPhoto(state: AppState, id: string) {
-  openPhoto(state, id)
-  state.mode = 'preview'
-}
-
 // Back to the grid with the photo last shown selected and scrolled
 // into view.
 export function closeEditor(state: AppState) {
@@ -141,7 +136,6 @@ async function loadVideo(state: AppState, id: string, file: Blob) {
   video.addEventListener('seeked', () => void grab(state, id, video))
 
   await grab(state, id, video)
-  if (state.mode === 'preview') void video.play()
 }
 
 function followFrames(state: AppState, id: string, video: HTMLVideoElement) {

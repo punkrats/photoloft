@@ -32,6 +32,9 @@
 - `data-foo` without a value gives `el.dataset.foo === ''`, which is
   falsy. Test boolean data attributes with `el.matches('[data-foo]')`
   or `'foo' in el.dataset`.
+- `preventDefault()` on a keydown for Enter stops the click a focused
+  button would get from it. A window-level shortcut that claims Enter
+  takes Enter from every button on screen.
 
 - Chromium applies a video's rotation flag in `videoWidth/Height` and
   in `createImageBitmap(video)`; feeding frames as ImageBitmaps keeps

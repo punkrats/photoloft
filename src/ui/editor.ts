@@ -84,17 +84,13 @@ function bar(state: AppState, lib: Library, id: string) {
         `}
       <span class="toolbar-count">${position}</span>
       <span class="toolbar-gap"></span>
-      <span class="editor-hint">Space or Esc closes, Enter edits</span>
       ${toggle(photo.starred, 'star', 'icon-star', 'Star to keep (S)')}
-      <span class="editor-tools">
-        ${toggle(state.before, 'toggle-before', 'icon-square-split-horizontal',
-          'Before and after (\\)')}
-        ${toggle(state.zoom, 'toggle-zoom', 'icon-zoom-in',
-          'Zoom to 100 % (Z)')}
-        ${toggle(state.mode === 'crop', 'crop-tool', 'icon-crop',
-          'Crop and straighten (R)')}
-        ${historyButtons(state)}
-      </span>
+      ${toggle(state.before, 'toggle-before', 'icon-square-split-horizontal',
+        'Before and after (\\)')}
+      ${toggle(state.zoom, 'toggle-zoom', 'icon-zoom-in', 'Zoom to 100 % (Z)')}
+      ${toggle(state.mode === 'crop', 'crop-tool', 'icon-crop',
+        'Crop and straighten (R)')}
+      ${historyButtons(state)}
     </header>
   `
 }

@@ -550,8 +550,8 @@ test('takes keys pressed right after Esc as shortcuts', async ({ page }) => {
   await expect(selected).toHaveText('e2e-a.jpg')
   expect(await slider.evaluate(value)).toBe('0')
 
-  // The same from the seek bar of a playing video, which stays in the
-  // page while the editor is hidden.
+  // The same from the seek bar of a video, which stays in the page
+  // while the editor is hidden.
   await cell(page, 'clip.mp4').click()
   await page.keyboard.press(' ')
   await page.locator('.transport-seek').focus()
@@ -642,32 +642,44 @@ test('shows photos whose camera wrote a placeholder date', async ({ page }) => {
   await expect(page.locator('#crash')).toBeHidden()
 })
 
-test('shows the selected photo large with Space', async ({ page }) => {
+test('opens the selected photo in the editor with Space', async ({ page }) => {
+  const app = page.locator('.app')
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
 
   await cell(page, 'e2e-b.jpg').click()
   await page.keyboard.press(' ')
-  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'preview')
+  await expect(app).toHaveAttribute('data-mode', 'edit')
   await expect(page.locator('.editor-name')).toHaveText('e2e-b.jpg')
   await expect(page.locator('.stage')).not.toHaveClass(/loading/)
-  await expect(page.locator('.panel')).toHaveCount(0)
-  await expect(page.locator('.filmstrip')).toBeHidden()
+  await expect(page.locator('.panel')).toBeVisible()
+  await expect(page.locator('.filmstrip')).toBeVisible()
+
+  // Enter presses a focused button in the editor.
+  const star = page.locator('.editor-bar [data-action="star"]')
+  await star.focus()
+  await page.keyboard.press('Enter')
+  await expect(star).toHaveClass(/\bon\b/)
 
   // Arrows step through; Space returns with the last photo selected.
   await page.keyboard.press('ArrowRight')
   await expect(page.locator('.editor-name')).toHaveText('e2e-c.jpg')
   await page.keyboard.press(' ')
-  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
+  await expect(app).toHaveAttribute('data-mode', 'grid')
   await expect(page.locator('.cell.selected')).toHaveCount(1)
   const selected = page.locator('.cell.selected .cell-file')
   await expect(selected).toHaveText('e2e-c.jpg')
 
-  // Enter goes on to editing.
+  // In the crop tool Space leaves a photo alone; Esc goes back to
+  // editing, and Space from there to the grid.
   await page.keyboard.press(' ')
-  await page.keyboard.press('Enter')
-  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'edit')
-  await expect(page.locator('.panel')).toBeVisible()
+  await page.keyboard.press('r')
+  await expect(app).toHaveAttribute('data-mode', 'crop')
+  await page.keyboard.press(' ')
+  await page.keyboard.press('Escape')
+  await expect(app).toHaveAttribute('data-mode', 'edit')
+  await page.keyboard.press(' ')
+  await expect(app).toHaveAttribute('data-mode', 'grid')
 })
 
 test('clears what the last import put in no album', async ({ page }) => {
@@ -757,12 +769,19 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
     img.naturalWidth / img.naturalHeight)
   expect(shape).toBeLessThan(1)
 
-  // Space plays a video; Space again closes it.
+  // Space opens a video paused; Space and K play and pause it, Esc
+  // closes it.
   await cell(page, 'clip.mp4').click()
   await page.keyboard.press(' ')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'edit')
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
   const play = page.locator('.transport [data-action="play"] i')
-  await expect(play).toHaveClass('icon-pause')
+  await expect(play).toHaveClass('icon-play')
   await page.keyboard.press(' ')
+  await expect(play).toHaveClass('icon-pause')
+  await page.keyboard.press('k')
+  await expect(play).toHaveClass('icon-play')
+  await page.keyboard.press('Escape')
   await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
 
   // Grade the flat clip, then export all three videos as an album.

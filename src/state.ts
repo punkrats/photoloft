@@ -13,8 +13,7 @@ import type { Colour, Crop } from './schema'
 import type { Dirs } from './storage'
 import type { Histogram } from './ui/histogram'
 
-// preview shows the photo large without editing tools (Space).
-export type Mode = 'grid' | 'preview' | 'edit' | 'crop'
+export type Mode = 'grid' | 'edit' | 'crop'
 type Counts = ReturnType<typeof libraryCounts>
 
 export type ExportForm = {

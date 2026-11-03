@@ -13,10 +13,6 @@
     }
   }
 
-  &[data-mode='preview'] {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   &[data-mode='grid'] .editor {
     display: none;
   }

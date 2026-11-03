@@ -17,27 +17,6 @@
   background: var(--bg);
 }
 
-.editor-tools {
-  display: contents;
-}
-
-.editor-hint {
-  display: none;
-  color: var(--text-faint);
-  font-size: var(--font-sm);
-}
-
-.app[data-mode='preview'] {
-  .editor-tools,
-  .filmstrip {
-    display: none;
-  }
-
-  .editor-hint {
-    display: inline;
-  }
-}
-
 .editor-name {
   margin: 0;
   overflow: hidden;

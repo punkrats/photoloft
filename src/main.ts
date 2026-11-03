@@ -5,9 +5,8 @@ import {
 import { commit, redoChange, saveNow, undoChange } from './commit'
 import {
   closeEditor, copySettings, endCropDrag, ensureRenderer, finishHorizon,
-  loadCurrent, moveCropDrag, openPhoto, pasteSettings, pickWhite, previewPhoto,
-  togglePlay,
-  startCropDrag, step
+  loadCurrent, moveCropDrag, openPhoto, pasteSettings, pickWhite,
+  startCropDrag, step, togglePlay
 } from './editing'
 import type { Handle } from './geometry'
 import {
@@ -18,8 +17,8 @@ import { moveInAlbum } from './library'
 import { paint } from './paint'
 import { flush, render, RENDERED } from './render'
 import {
-  currentAlbum, initialState, viewIds, viewSections, type AppState,
-  type Point
+  currentAlbum, currentPhoto, initialState, viewIds, viewSections,
+  type AppState, type Point
 } from './state'
 import { hasAccess, rememberedLibrary } from './storage'
 import { pickerOptions } from './ui/dialogs'
@@ -297,9 +296,7 @@ function escape(state: AppState) {
   if (state.dialog) state.dialog = null
   else if (state.editor.tool !== 'none') state.editor.tool = 'none'
   else if (state.mode === 'crop') state.mode = 'edit'
-  else if (state.mode === 'edit' || state.mode === 'preview') {
-    closeEditor(state)
-  }
+  else if (state.mode === 'edit') closeEditor(state)
   else state.selection = new Set()
   return true
 }
@@ -327,12 +324,8 @@ function gridKey(state: AppState, key: string) {
   const focused = state.current && ids.includes(state.current)
     ? state.current
     : ids.find(id => state.selection.has(id))
-  if (key === 'Enter' && focused) {
+  if ((key === 'Enter' || key === ' ') && focused) {
     openPhoto(state, focused)
-    return true
-  }
-  if (key === ' ' && focused) {
-    previewPhoto(state, focused)
     return true
   }
   if (key === 'g' && state.selection.size && state.view.kind !== 'trash') {
@@ -364,11 +357,12 @@ function editorKey(state: AppState, key: string) {
     '\\': () => {
       state.before = !state.before
     },
-    Enter: () => {
-      if (state.mode !== 'edit') state.mode = 'edit'
-    },
+
+    // Space leaves the editor on a photo and plays or pauses a video;
+    // in the crop tool it only plays or pauses.
     ' ': () => {
-      if (state.mode === 'preview') closeEditor(state)
+      const video = currentPhoto(state)?.video
+      if (state.mode === 'edit' && !video) closeEditor(state)
       else togglePlay(state)
     },
     k: () => {

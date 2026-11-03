@@ -129,14 +129,14 @@ const doubleClick: Step = (page, name) => cell(page, name).dblclick()
 
 // ─── Flows ───────────────────────────────────────────────────────────
 
-test('keeps its place after a photo was shown large', async ({ page }) => {
+test('keeps its place after a photo was opened', async ({ page }) => {
   await openLibrary(page)
   await importMany(page)
 
   const ways: [string, Step, string, Step][] = [
-    ['Space, then Space', space, 'preview', space],
-    ['Space, then Esc', space, 'preview', escape],
-    ['Space, then the back button', space, 'preview', back],
+    ['Space, then Space', space, 'edit', space],
+    ['Space, then Esc', space, 'edit', escape],
+    ['Space, then the back button', space, 'edit', back],
     ['Enter, then Esc', enter, 'edit', escape],
     ['double click, then the back button', doubleClick, 'edit', back]
   ]
@@ -212,7 +212,7 @@ test('keeps its place when the photo leaves the view', async ({ page }) => {
   await focusMiddle(page, 500)
   const top = await scrollTop(page)
   await page.keyboard.press(' ')
-  await mode(page, 'preview')
+  await mode(page, 'edit')
   await page.keyboard.press('s')
   await expect(page.locator('.editor-bar .toolbar-count')).
     toHaveText(`0 / ${COUNT - 1}`)
