@@ -81,6 +81,12 @@ ffmpeg -hide_banner -loglevel error -y \
 ffmpeg -hide_banner -loglevel error -y -display_rotation 90 \
   -i "$dir/clip.mp4" -c copy -t 1 "$dir/VID_20240108_093000.mp4"
 
+# A phone clip with its location in moov/udta (QuickTime ©xyz, ISO 6709),
+# where Android camera apps write it.
+cp "$dir/VID_20240108_093000.mp4" "$dir/located.mp4"
+exiftool -q -overwrite_original '-UserData:GPSCoordinates=41.9, 12.5' \
+  "$dir/located.mp4"
+
 # A file named like a video that no browser can play.
 { printf '\x00\x00\x00\x18ftypmp42'; head -c 4000 /dev/urandom; } \
   >"$dir/broken.mp4"

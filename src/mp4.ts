@@ -1,9 +1,11 @@
+import type { Location } from './meta'
 import { realTaken } from './taken'
 
 type Box = { start: number, end: number }
 
 const EPOCH_1904 = 2082844800
 const FILE_NAME_TIME = /(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d)/
+const ISO_6709 = /^([+-]\d{2}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)/
 
 // Creation time from the movie header (mvhd): seconds since 1904, meant
 // as UTC. Null when missing or obviously unset.
@@ -19,6 +21,27 @@ export function movieTime(bytes: Uint8Array): Date | null {
     : view.getUint32(mvhd.start + 4)
   const date = new Date((seconds - EPOCH_1904) * 1000)
   return date.getUTCFullYear() >= 1990 ? date : null
+}
+
+// Location from the QuickTime ©xyz entry phones write into moov/udta:
+// text length, language, then ISO 6709 degrees such as
+// +41.9000+012.5000/. Null when missing, out of range or all zeros.
+export function movieLocation(bytes: Uint8Array): Location | null {
+  const moov = findBox(bytes, 0, bytes.length, 'moov')
+  const udta = moov ? findBox(bytes, moov.start, moov.end, 'udta') : null
+  const xyz = udta ? findBox(bytes, udta.start, udta.end, '\u00a9xyz') : null
+  if (!xyz || xyz.end - xyz.start < 4) return null
+
+  const length = (bytes[xyz.start] << 8) | bytes[xyz.start + 1]
+  const end = Math.min(xyz.end, xyz.start + 4 + length)
+  const text = String.fromCharCode(...bytes.subarray(xyz.start + 4, end))
+  const match = ISO_6709.exec(text)
+  if (!match) return null
+
+  const lat = Number(match[1])
+  const lon = Number(match[2])
+  const valid = Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && (lat || lon)
+  return valid ? { lat, lon } : null
 }
 
 // Local capture time phones write into file names, such as
@@ -64,7 +87,7 @@ function findBox(bytes: Uint8Array, from: number, to: number, type: string) {
   while (offset + 8 <= to) {
     const box = boxAt(bytes, offset, to)
     if (!box) return null
-    const end = box.size ? offset + box.size : to
+    const end = box.size ? Math.min(offset + box.size, to) : to
     if (box.type === type) return { start: offset + box.header, end } as Box
     offset = end
   }

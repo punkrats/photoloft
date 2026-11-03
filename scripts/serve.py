@@ -6,17 +6,20 @@
 # caching, so a rebuild shows up on the next start.
 #
 # The video API only answers the Lightbox page itself (Host and Origin
-# checks plus a per-start token), never reads paths from requests, and
-# builds every ffmpeg filter from validated numbers.
+# checks plus a per-start token), never reads paths from requests,
+# builds every ffmpeg filter from validated numbers, and hands info
+# texts to ffmpeg as single cleaned arguments.
 
 import functools
 import http.server
 import json
 import math
+import mmap
 import pathlib
 import re
 import secrets
 import shutil
+import struct
 import subprocess
 import tempfile
 import threading
@@ -32,10 +35,37 @@ CHUNK = 1024 * 1024
 NUMBER = re.compile(r'^-?\d+(\.\d+)?([eE]-?\d+)?$')
 SHORT_SIDES = (0, 720, 1080)
 SETTING_KEYS = {
-    'rotate', 'flip', 'angle', 'crop', 'shortSide', 'crf', 'creationTime'
+    'rotate', 'flip', 'angle', 'crop', 'shortSide', 'crf', 'creationTime',
+    'stripGps', 'meta'
 }
 CREATION_TIME = re.compile(
     r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$')
+
+# Info text lengths in characters, the same src/exif.ts uses for photos.
+TEXT_LIMITS = {
+    'title': 200, 'description': 2000, 'author': 200, 'copyright': 200
+}
+KEYWORD_LIMIT = 100
+KEYWORD_COUNT = 50
+META_KEYS = {*TEXT_LIMITS, 'keywords', 'location'}
+SPACES = re.compile(r'[\t\n\v\f\r]+')
+CONTROLS = re.compile(r'[\x00-\x1f\x7f-\x9f\ufffe\uffff]')
+
+# Info fields as ffmpeg's MP4 tags. The description also goes into the
+# comment, which more players show.
+INFO_TAGS = {
+    'title': ('title',),
+    'description': ('description', 'comment'),
+    'keywords': ('keywords',),
+    'author': ('artist',),
+    'copyright': ('copyright',)
+}
+
+# ISO 6709 in degrees, as phones write it: +DD.DDDD+DDD.DDDD/, maybe
+# followed by an altitude.
+ISO_6709 = re.compile(r'^([+-]\d{2}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)')
+CHUNK_TABLES = {b'stco': '>I', b'co64': '>Q'}
+TRACK_BOXES = {b'trak', b'mdia', b'minf', b'stbl'}
 
 
 # ─── Validation ──────────────────────────────────────────────────────
@@ -72,6 +102,8 @@ def parse_settings(raw):
     if created is not None and not (
             isinstance(created, str) and CREATION_TIME.match(created)):
         raise ValueError('creationTime')
+    if not isinstance(raw['stripGps'], bool):
+        raise ValueError('stripGps')
 
     return {
         'rotate': rotate,
@@ -80,8 +112,50 @@ def parse_settings(raw):
         'crop': {'x': x, 'y': y, 'w': w, 'h': h},
         'shortSide': raw['shortSide'],
         'crf': crf,
-        'creationTime': created
+        'creationTime': created,
+        'stripGps': raw['stripGps'],
+        'meta': parse_meta(raw['meta'])
     }
+
+
+# Texts are cleaned and capped like photo exports; a missing key leaves
+# the camera's value, an empty text removes it.
+def parse_meta(raw):
+    if not isinstance(raw, dict) or not set(raw) <= META_KEYS:
+        raise ValueError('meta')
+
+    meta = {key: clean(raw[key], limit)
+            for key, limit in TEXT_LIMITS.items() if key in raw}
+    if 'keywords' in raw:
+        if not isinstance(raw['keywords'], list):
+            raise ValueError('keywords')
+        words = [clean(word, KEYWORD_LIMIT) for word in raw['keywords']]
+        unique = list(dict.fromkeys(word for word in words if word))
+        meta['keywords'] = unique[:KEYWORD_COUNT]
+    if 'location' in raw:
+        meta['location'] = parse_location(raw['location'])
+    return meta
+
+
+# Line breaks and tabs become spaces, other control characters and
+# unpaired surrogates go.
+def clean(text, limit):
+    if not isinstance(text, str):
+        raise ValueError('text')
+    plain = text.encode('utf-8', 'ignore').decode()
+    plain = CONTROLS.sub('', SPACES.sub(' ', plain)).strip()
+    return plain[:limit].strip()
+
+
+def parse_location(raw):
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {'lat', 'lon'}:
+        raise ValueError('location')
+    lat, lon = number(raw['lat']), number(raw['lon'])
+    if abs(lat) > 90 or abs(lon) > 180:
+        raise ValueError('location')
+    return {'lat': lat, 'lon': lon}
 
 
 def number(value):
@@ -155,7 +229,7 @@ def build_filters(settings, lut_path):
     return ','.join(chain)
 
 
-def ffmpeg_args(source, target, settings, lut_path):
+def ffmpeg_args(source, target, settings, lut_path, place):
     return [
         'ffmpeg', '-hide_banner', '-nostdin', '-y', '-i', str(source),
         '-map', '0:v:0', '-map', '0:a:0?',
@@ -164,16 +238,53 @@ def ffmpeg_args(source, target, settings, lut_path):
         '-colorspace', 'bt709', '-color_primaries', 'bt709',
         '-color_trc', 'bt709',
         '-c:a', 'aac', '-b:a', '160k',
-        '-map_metadata', '0', *creation(settings),
+        '-map_metadata', '0', *metadata(settings, place),
         '-movflags', '+faststart',
         '-progress', 'pipe:1', '-nostats', '-loglevel', 'error',
         str(target)
     ]
 
 
-def creation(settings):
-    created = settings['creationTime']
-    return ['-metadata', f'creation_time={created}'] if created else []
+# Tags over the source's own: the capture time, the info texts set in
+# Lightbox, and the location chosen for the export, which also clears
+# the camera's.
+def metadata(settings, place):
+    tags = {}
+    if settings['creationTime']:
+        tags['creation_time'] = settings['creationTime']
+    meta = settings['meta']
+    for field, keys in INFO_TAGS.items():
+        if field in meta:
+            value = meta[field]
+            text = ', '.join(value) if field == 'keywords' else value
+            tags.update(dict.fromkeys(keys, text))
+    tags['location'] = place or ''
+    return [arg for key, value in tags.items()
+            for arg in ('-metadata', f'{key}={value}')]
+
+
+# The location an export carries, as ISO 6709: the one set in Lightbox,
+# else the camera's unless camera locations are removed.
+def place_of(settings, source):
+    meta = settings['meta']
+    if 'location' in meta:
+        place = meta['location']
+    elif settings['stripGps']:
+        place = None
+    else:
+        place = recorded_place(source)
+    return iso6709(place) if place else None
+
+
+def recorded_place(path):
+    args = ['ffprobe', '-v', 'error', '-show_entries', 'format_tags=location',
+            '-of', 'json', str(path)]
+    try:
+        found = json.loads(subprocess.check_output(args))
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+    tags = found.get('format', {}).get('tags', {})
+    return parse_iso6709(tags.get('location', ''))
 
 
 def duration_of(path):
@@ -187,7 +298,8 @@ def duration_of(path):
 
 def export_video(source, target, settings, lut_path, on_progress=None):
     total = duration_of(source)
-    args = ffmpeg_args(source, target, settings, lut_path)
+    place = place_of(settings, source)
+    args = ffmpeg_args(source, target, settings, lut_path, place)
     with subprocess.Popen(args, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True) as process:
         for line in process.stdout:
@@ -197,6 +309,112 @@ def export_video(source, target, settings, lut_path, on_progress=None):
         error = process.stderr.read()
     if process.returncode != 0:
         raise RuntimeError(error.strip() or 'ffmpeg failed')
+    if place:
+        add_place(target, place)
+
+
+# ─── MP4 location ────────────────────────────────────────────────────
+
+def iso6709(place):
+    return f"{place['lat']:+08.4f}{place['lon']:+09.4f}/"
+
+
+def parse_iso6709(text):
+    match = ISO_6709.match(text)
+    if not match:
+        return None
+    lat, lon = float(match[1]), float(match[2])
+    if abs(lat) > 90 or abs(lon) > 180:
+        return None
+    return {'lat': lat, 'lon': lon}
+
+
+# Writes the location as ©xyz into moov/udta, where Android and Google
+# Photos read it; ffmpeg's MP4 muxer only writes a 3GPP loci box. Chunk
+# offsets pointing behind the moov box move by the bytes added.
+def add_place(path, place):
+    text = place.encode('ascii')
+    entry = box(b'\xa9xyz', struct.pack('>HH', len(text), 0x15c7) + text)
+    temp = path.with_name(path.name + '.part')
+
+    with (open(path, 'rb') as file,
+          mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as data):
+        found = first(data, 0, len(data), b'moov')
+        if not found:
+            raise RuntimeError('no moov box')
+        _, start, body, end = found
+
+        moov = bytearray(data[start:end])
+        udta = first(moov, body - start, len(moov), b'udta')
+        added = len(entry) if udta else len(entry) + 8
+        shift_chunks(moov, body - start, len(moov), start, added)
+        if udta:
+            _, at, _, stop = udta
+            grow(moov, at, added)
+            moov[stop:stop] = entry
+        else:
+            moov += box(b'udta', entry)
+        grow(moov, 0, added)
+
+        with open(temp, 'wb') as out:
+            out.write(data[:start])
+            out.write(moov)
+            for at in range(end, len(data), CHUNK):
+                out.write(data[at:at + CHUNK])
+    temp.replace(path)
+
+
+def shift_chunks(data, start, end, after, by):
+    for kind, _, body, stop in boxes(data, start, end):
+        if kind in TRACK_BOXES:
+            shift_chunks(data, body, stop, after, by)
+        if kind not in CHUNK_TABLES:
+            continue
+
+        form = CHUNK_TABLES[kind]
+        step = struct.calcsize(form)
+        count = struct.unpack_from('>I', data, body + 4)[0]
+        if body + 8 + count * step > stop:
+            raise RuntimeError('broken chunk table')
+        for at in range(body + 8, body + 8 + count * step, step):
+            offset = struct.unpack_from(form, data, at)[0]
+            if offset > after:
+                if offset + by >= 1 << (8 * step):
+                    raise RuntimeError('chunk offset overflow')
+                struct.pack_into(form, data, at, offset + by)
+
+
+# (type, start, payload start, end) of each box between two offsets.
+def boxes(data, start, end):
+    at = start
+    while at + 8 <= end:
+        size, kind = struct.unpack_from('>I4s', data, at)
+        header = 8
+        if size == 1 and at + 16 <= end:
+            size, header = struct.unpack_from('>Q', data, at + 8)[0], 16
+        elif size == 0:
+            size = end - at
+        if size < header or at + size > end:
+            raise RuntimeError('broken MP4 box')
+        yield kind, at, at + header, at + size
+        at += size
+
+
+def first(data, start, end, kind):
+    return next((b for b in boxes(data, start, end) if b[0] == kind), None)
+
+
+def box(kind, payload):
+    return struct.pack('>I4s', len(payload) + 8, kind) + payload
+
+
+def grow(data, at, by):
+    size = struct.unpack_from('>I', data, at)[0]
+    if size == 1:
+        large = struct.unpack_from('>Q', data, at + 8)[0]
+        struct.pack_into('>Q', data, at + 8, large + by)
+    elif size:
+        struct.pack_into('>I', data, at, size + by)
 
 
 # ─── Jobs ────────────────────────────────────────────────────────────
@@ -229,12 +447,13 @@ class Jobs:
         def progress(value):
             job['progress'] = value
 
+        # Any failure ends the job, so the page stops waiting for it.
         try:
             export_video(folder / 'input', folder / 'output.mp4', settings,
                          folder / 'lut.cube', progress)
             job['state'] = 'done'
             job['progress'] = 1.0
-        except (RuntimeError, OSError) as error:
+        except Exception as error:
             job['state'] = 'failed'
             job['error'] = str(error)[-500:]
 

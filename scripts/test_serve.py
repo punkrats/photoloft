@@ -5,6 +5,7 @@
 import json
 import pathlib
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ import serve  # noqa: E402
 
 FIXTURES = pathlib.Path(__file__).resolve().parent.parent / 'test' / 'fixtures'
 HAS_FFMPEG = shutil.which('ffmpeg') is not None
+HAS_EXIFTOOL = shutil.which('exiftool') is not None
 
 GOOD = {
     'rotate': 0,
@@ -26,8 +28,19 @@ GOOD = {
     'crop': {'x': 0, 'y': 0, 'w': 1, 'h': 1},
     'shortSide': 720,
     'crf': 20,
-    'creationTime': None
+    'creationTime': None,
+    'stripGps': True,
+    'meta': {}
 }
+
+INFO = {
+    'title': 'Café ©',
+    'description': 'Sunset at Matira',
+    'keywords': ['beach', 'Bora Bora'],
+    'author': 'Zoë Name',
+    'copyright': '(c) 2026 Zoë Name'
+}
+PLACE = {'lat': -16.5004, 'lon': -151.7415}
 
 
 def lut(size=33, change=lambda r, g, b: (r, g, b)):
@@ -45,6 +58,38 @@ def probe(path):
     args = ['ffprobe', '-v', 'error', '-show_entries',
             'stream=codec_type,width,height', '-of', 'json', str(path)]
     return json.loads(subprocess.check_output(args))['streams']
+
+
+def tags(path):
+    args = ['ffprobe', '-v', 'error', '-show_entries', 'format_tags',
+            '-of', 'json', str(path)]
+    return json.loads(subprocess.check_output(args))['format'].get('tags', {})
+
+
+# The payload of the box at the end of a path such as moov/udta.
+def payload(data, *path):
+    for kind in path:
+        found = serve.first(data, 0, len(data), kind)
+        if not found:
+            return None
+        _, _, start, end = found
+        data = data[start:end]
+    return data
+
+
+# The ISO 6709 text of moov/udta/©xyz, read the way Android does.
+def xyz(path):
+    entry = payload(path.read_bytes(), b'moov', b'udta', b'\xa9xyz')
+    if entry is None:
+        return None
+    length = struct.unpack('>H', entry[:2])[0]
+    return entry[4:4 + length].decode('ascii')
+
+
+def frames(path):
+    args = ['ffmpeg', '-v', 'error', '-i', str(path), '-map', '0',
+            '-f', 'framemd5', '-']
+    return subprocess.check_output(args).decode()
 
 
 def first_pixel(path):
@@ -78,6 +123,90 @@ class Settings(unittest.TestCase):
     def test_rejects_unknown_keys(self):
         with self.assertRaises(ValueError):
             serve.parse_settings({**GOOD, 'filter': 'movie=/etc/passwd'})
+
+    def test_requires_location_and_info_settings(self):
+        for key in ('stripGps', 'meta'):
+            settings = {k: v for k, v in GOOD.items() if k != key}
+            with self.assertRaises(ValueError, msg=key):
+                serve.parse_settings(settings)
+
+    def test_accepts_info(self):
+        meta = {**INFO, 'location': PLACE}
+        parsed = serve.parse_settings({**GOOD, 'meta': meta})
+        self.assertEqual(parsed['meta'], meta)
+        self.assertNotIn('location', serve.parse_settings(GOOD)['meta'])
+        removed = serve.parse_settings({**GOOD, 'meta': {'location': None}})
+        self.assertIsNone(removed['meta']['location'])
+
+    def test_cleans_and_caps_info_texts(self):
+        meta = {
+            'title': '  a\x00b\nc\x07 ',
+            'description': 'd' * 3000,
+            'author': 'x\ud800y',
+            'keywords': [' sea ', '', 'sea', 'k' * 150, *map(str, range(60))]
+        }
+        parsed = serve.parse_settings({**GOOD, 'meta': meta})['meta']
+        self.assertEqual(parsed['title'], 'ab c')
+        self.assertEqual(parsed['description'], 'd' * 2000)
+        self.assertEqual(parsed['author'], 'xy')
+        self.assertEqual(parsed['keywords'][:2], ['sea', 'k' * 100])
+        self.assertEqual(len(parsed['keywords']), 50)
+
+    def test_rejects_bad_info(self):
+        bad = [
+            {'stripGps': 'yes'},
+            {'meta': None},
+            {'meta': {'rating': 5}},
+            {'meta': {'title': 5}},
+            {'meta': {'keywords': 'a, b'}},
+            {'meta': {'keywords': ['a', 1]}},
+            {'meta': {'location': {'lat': 91, 'lon': 0}}},
+            {'meta': {'location': {'lat': 0, 'lon': -181}}},
+            {'meta': {'location': {'lat': True, 'lon': 0}}},
+            {'meta': {'location': {'lat': 0, 'lon': 0, 'alt': 3}}},
+            {'meta': {'location': '+41.9+012.5/'}}
+        ]
+        for change in bad:
+            with self.assertRaises(ValueError, msg=change):
+                serve.parse_settings({**GOOD, **change})
+
+
+class Place(unittest.TestCase):
+    def test_writes_iso_6709_degrees(self):
+        self.assertEqual(serve.iso6709(PLACE), '-16.5004-151.7415/')
+        place = {'lat': 5.1, 'lon': 12.5}
+        self.assertEqual(serve.iso6709(place), '+05.1000+012.5000/')
+
+    def test_reads_iso_6709_degrees(self):
+        self.assertEqual(serve.parse_iso6709('+41.900+012.500/'),
+                         {'lat': 41.9, 'lon': 12.5})
+        self.assertEqual(serve.parse_iso6709('-16.5004-151.7415+30.000/'),
+                         PLACE)
+        for text in ('', '+4154.0+01230.0/', '+95.0+012.0/', 'x'):
+            self.assertIsNone(serve.parse_iso6709(text), text)
+
+    def test_adds_user_data_and_moves_chunk_offsets(self):
+        frame = b'frame data'
+
+        def movie(offset):
+            table = serve.box(b'stco', struct.pack('>III', 0, 1, offset))
+            for kind in (b'stbl', b'minf', b'mdia', b'trak', b'moov'):
+                table = serve.box(kind, table)
+            return serve.box(b'ftyp', b'isom') + table + \
+                serve.box(b'mdat', frame)
+
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        path = folder / 'tiny.mp4'
+        path.write_bytes(movie(len(movie(0)) - len(frame)))
+        serve.add_place(path, '+41.9000+012.5000/')
+
+        self.assertEqual(xyz(path), '+41.9000+012.5000/')
+        data = path.read_bytes()
+        chunks = payload(data, b'moov', b'trak', b'mdia', b'minf', b'stbl',
+                         b'stco')
+        offset = struct.unpack('>I', chunks[8:12])[0]
+        self.assertEqual(data[offset:offset + len(frame)], frame)
 
 
 class Lut(unittest.TestCase):
@@ -162,6 +291,71 @@ class Export(unittest.TestCase):
         tag = subprocess.check_output(args).decode().strip()
         self.assertTrue(tag.startswith('2026-05-31T15:31:00'), tag)
 
+    def test_writes_info_texts(self):
+        settings = {**GOOD, 'meta': INFO}
+        written = tags(self.export('clip.mp4', settings, lut()))
+        self.assertEqual(written['title'], 'Café ©')
+        self.assertEqual(written['description'], 'Sunset at Matira')
+        self.assertEqual(written['comment'], 'Sunset at Matira')
+        self.assertEqual(written['keywords'], 'beach, Bora Bora')
+        self.assertEqual(written['artist'], 'Zoë Name')
+        self.assertEqual(written['copyright'], '(c) 2026 Zoë Name')
+
+    def test_removes_emptied_info_texts(self):
+        source = self.export('clip.mp4', {**GOOD, 'meta': INFO}, lut())
+        kept = self.dir / 'kept.mp4'
+        source.rename(kept)
+        settings = {**GOOD, 'meta': {'title': '', 'author': 'New'}}
+        written = tags(self.export(kept, settings, lut()))
+        self.assertNotIn('title', written)
+        self.assertEqual(written['artist'], 'New')
+        self.assertEqual(written['copyright'], '(c) 2026 Zoë Name')
+
+    def test_removes_camera_locations(self):
+        out = self.export('located.mp4', GOOD, lut())
+        self.assertFalse([k for k in tags(out) if 'location' in k])
+        self.assertIsNone(xyz(out))
+
+    def test_keeps_camera_locations_when_asked(self):
+        out = self.export('located.mp4', {**GOOD, 'stripGps': False}, lut())
+        self.assertEqual(xyz(out), '+41.9000+012.5000/')
+        self.assertTrue(tags(out)['location'].startswith('+41.9'))
+
+    def test_writes_a_set_location_in_place_of_the_camera_one(self):
+        for strip in (True, False):
+            meta = {'location': PLACE}
+            settings = {**GOOD, 'stripGps': strip, 'meta': meta}
+            out = self.export('located.mp4', settings, lut())
+            self.assertEqual(xyz(out), '-16.5004-151.7415/')
+            self.assertEqual(serve.parse_iso6709(tags(out)['location']),
+                             {'lat': -16.5004, 'lon': -151.7415})
+
+    def test_removes_every_location_for_none(self):
+        settings = {**GOOD, 'stripGps': False, 'meta': {'location': None}}
+        out = self.export('located.mp4', settings, lut())
+        self.assertFalse([k for k in tags(out) if 'location' in k])
+        self.assertIsNone(xyz(out))
+
+    def test_adding_a_location_keeps_every_frame(self):
+        plain = self.export('clip.mp4', GOOD, lut())
+        before = frames(plain)
+        serve.add_place(plain, '-16.5004-151.7415/')
+        self.assertEqual(xyz(plain), '-16.5004-151.7415/')
+        self.assertEqual(frames(plain), before)
+
+    @unittest.skipUnless(HAS_EXIFTOOL, 'exiftool missing')
+    def test_passes_exiftool_validation(self):
+        meta = {**INFO, 'location': PLACE}
+        out = self.export('located.mp4', {**GOOD, 'meta': meta}, lut())
+        args = ['exiftool', '-j', '-a', '-n', '-G1', '-All', '-validate',
+                '-warning', str(out)]
+        info = json.loads(subprocess.check_output(args))[0]
+        self.assertEqual(info['ExifTool:Validate'], '0 0 0', info)
+        self.assertEqual(info['ItemList:Title'], 'Café ©')
+        self.assertEqual(info['ItemList:Artist'], 'Zoë Name')
+        self.assertEqual(info['UserData:GPSCoordinates'],
+                         '-16.5004 -151.7415')
+
     def test_keeps_phone_rotation_and_sound_without_upscaling(self):
         out = self.export('VID_20240108_093000.mp4', GOOD, lut())
         streams = probe(out)
@@ -187,13 +381,14 @@ class Api(unittest.TestCase):
         with urllib.request.urlopen(request) as response:
             return response.read()
 
-    def test_exports_through_the_api(self):
+    # Runs an export the way the page does and returns the result file.
+    def export(self, settings):
         token = json.loads(self.call('/api/token'))['token']
         table = lut().encode()
         body = table + (FIXTURES / 'clip.mp4').read_bytes()
         headers = {
             'X-Lightbox-Token': token,
-            'X-Lightbox-Settings': json.dumps(GOOD),
+            'X-Lightbox-Settings': settings,
             'X-Lightbox-Lut-Length': str(len(table))
         }
         job = json.loads(self.call('/api/videos', body, headers))['job']
@@ -206,14 +401,25 @@ class Api(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(status['state'], 'done', status)
 
-        result = self.call(f'/api/videos/{job}/result', None, headers)
-        out = pathlib.Path(tempfile.mkdtemp()) / 'out.mp4'
-        out.write_bytes(result)
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        out = folder / 'out.mp4'
+        out.write_bytes(self.call(f'/api/videos/{job}/result', None, headers))
+        return out
+
+    def test_exports_through_the_api(self):
+        out = self.export(json.dumps(GOOD))
         self.assertEqual(probe(out)[0]['codec_type'], 'video')
+
+    def test_reads_info_with_escaped_characters_from_the_header(self):
+        settings = json.dumps({**GOOD, 'meta': {'title': 'Café ©'}})
+        self.assertIn('Caf\\u00e9 \\u00a9', settings)
+        self.assertEqual(tags(self.export(settings))['title'], 'Café ©')
 
     def test_refuses_requests_without_the_token(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.call('/api/videos', b'x', {'X-Lightbox-Token': 'wrong'})
+        caught.exception.close()
         self.assertEqual(caught.exception.code, 403)
 
 

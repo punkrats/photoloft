@@ -1,8 +1,10 @@
 // Just enough JPEG and EXIF (TIFF) handling for import and export:
-// read size, orientation and capture date, and rebuild a compact EXIF
-// block for exported files. Values are copied as raw bytes in the
+// read size, orientation, capture date and location, and rebuild a
+// compact EXIF block plus an XMP packet with the photo's info for
+// exported files. Camera values are copied as raw bytes in the
 // original byte order, so nothing is reinterpreted on the way.
 
+import type { Location, Meta } from './meta'
 import { realTaken } from './taken'
 
 export type JpegInfo = {
@@ -17,9 +19,19 @@ export type ExportOptions = {
   height: number
   stripGps: boolean
   takenAt: string | null
+  meta: Meta
 }
 
 type Entry = { tag: number, type: number, count: number, data: Uint8Array }
+
+// Info texts as written: cleaned, capped, and empty when removed.
+type Texts = {
+  title?: string
+  description?: string
+  keywords?: string[]
+  author?: string
+  copyright?: string
+}
 
 type Tiff = {
   little: boolean
@@ -35,6 +47,9 @@ const TYPE_SIZE: Record<number, number> = {
 }
 
 const TAG = {
+  description: 0x010e,
+  artist: 0x013b,
+  copyright: 0x8298,
   orientation: 0x0112,
   dateTime: 0x0132,
   exifPointer: 0x8769,
@@ -45,6 +60,8 @@ const TAG = {
   pixelX: 0xa002,
   pixelY: 0xa003
 }
+
+const GPS = { version: 0x0000, latRef: 1, lat: 2, lonRef: 3, lon: 4 }
 
 // Pointers are rebuilt; the rest would carry stale offsets, original
 // pixels (maker note previews, ICC, XMP), data meant for the source, or
@@ -59,6 +76,29 @@ const DROP_EXIF = new Set([
 
 // Capture time tags, rewritten when the capture time was corrected.
 const DATE_TAGS = new Set([TAG.dateTime, TAG.dateTimeOriginal, 0x9004])
+
+// Lengths in characters; scripts/serve.py applies the same to videos.
+const LIMIT = {
+  title: 200, description: 2000, author: 200, copyright: 200,
+  keyword: 100, keywords: 50
+}
+
+// What cameras write into ImageDescription when nobody described the
+// photo, compared in lower case: brand names, then the shooting modes
+// Huawei phones leave there.
+const PLACEHOLDERS = new Set([
+  'olympus digital camera', 'minolta digital camera',
+  'medion digital camera', 'sony dsc', 'samsung', 'samsung camera pictures',
+  '<digimax i5, samsung #1>', 'hellomoto', 'exif_jpeg_picture',
+  'digital camera', 'default', 'created by imlib', 'binary comment',
+  'charset=ascii', 'dvc 10.1 hdmi', 'scanner',
+  'rhdr', 'hdrpl', 'oznor', 'oznorwo', 'frontbhdp', 'fbt', 'rbt', 'ptr',
+  'fbthdr', 'btr', 'mon', 'nor', 'dav', 'mde', 'mde_soft', 'edf', 'btfmdn',
+  'btf', 'btfhdr', 'frem', 'rpt', 'burst', 'sdr_hdrb', 'cof', 'qrf',
+  'fshbty', '_cuva', 'smart', 'hdr', 'bsh'
+])
+
+const XMP_HEADER = 'http://ns.adobe.com/xap/1.0/\0'
 
 const SOF = new Set([
   0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce,
@@ -109,6 +149,37 @@ export function exifTags(bytes: Uint8Array) {
   return tags
 }
 
+// The location the camera recorded in the GPS IFD. Reads the EXIF
+// segment only, so the first 256 KB of a file are plenty.
+export function cameraLocation(bytes: Uint8Array): Location | null {
+  const seg = segments(bytes).find(s => isExif(bytes, s))
+  const tiff = seg ? tryParse(bytes, seg) : null
+  if (!tiff) return null
+
+  const lat = degrees(tiff, GPS.lat, GPS.latRef, 'S')
+  const lon = degrees(tiff, GPS.lon, GPS.lonRef, 'W')
+  const place = { lat, lon }
+
+  // Receivers without a fix often write zeros.
+  return validPlace(place) && (lat || lon) ? place : null
+}
+
+function degrees(tiff: Tiff, tag: number, refTag: number, negative: string) {
+  const entry = find(tiff.gps, tag)
+  if (!entry || entry.type !== 5) return NaN
+
+  const [d = 0, m = 0, s = 0] = [decode(tiff, entry)].flat() as number[]
+  const ref = find(tiff.gps, refTag)
+  const sign = ref && decode(tiff, ref) === negative ? -1 : 1
+  return sign * (d + m / 60 + s / 3600)
+}
+
+function validPlace(place: Location) {
+  const { lat, lon } = place
+  return Number.isFinite(lat) && Number.isFinite(lon) &&
+    Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+}
+
 function captureDate(tiff: Tiff) {
   const raw = find(tiff.exif, TAG.dateTimeOriginal) ??
     find(tiff.ifd0, TAG.dateTime)
@@ -123,7 +194,10 @@ function captureDate(tiff: Tiff) {
 }
 
 function decode(tiff: Tiff, entry: Entry): string | number | number[] {
-  if (entry.type === 2 || entry.type === 7) {
+  if (entry.type === 2) {
+    return new TextDecoder().decode(entry.data).replace(/\0+$/, '')
+  }
+  if (entry.type === 7) {
     return String.fromCharCode(...entry.data).replace(/\0+$/, '')
   }
 
@@ -154,13 +228,27 @@ function find(ifd: Entry[], tag: number) {
 
 // ─── Export ──────────────────────────────────────────────────────────
 
-// A complete APP1 segment for an exported file, or null when there is
-// nothing to write. The library's capture time goes into the date tags,
-// also for files that had no EXIF.
+// The APP1 segments for an exported file: EXIF, then XMP when the
+// photo has info texts. Null when there is nothing to write. The
+// library's capture time goes into the date tags, also for files that
+// had no EXIF.
 export function exportExif(bytes: Uint8Array, opts: ExportOptions) {
+  const texts = textsOf(opts.meta)
+  const exif = exifSegment(bytes, opts, texts)
+  const xmp = xmpSegment(texts)
+  if (!exif || !xmp) return exif ?? xmp
+  return new Uint8Array([...exif, ...xmp])
+}
+
+function exifSegment(bytes: Uint8Array, opts: ExportOptions, texts: Texts) {
+  const place = opts.meta.location
+  const taken = realTaken(opts.takenAt)
+  const wanted = taken || texts.description || texts.author ||
+    texts.copyright || place
+
   const seg = segments(bytes).find(s => isExif(bytes, s))
   const found = seg ? tryParse(bytes, seg) : null
-  const tiff = found ?? (realTaken(opts.takenAt) ? emptyTiff() : null)
+  const tiff = found ?? (wanted ? emptyTiff() : null)
   if (!tiff) return null
 
   const word = (v: number, size: 2 | 4) => {
@@ -174,18 +262,30 @@ export function exportExif(bytes: Uint8Array, opts: ExportOptions) {
     ({ tag, type: 4, count: 1, data: word(v, 4) })
 
   // A corrected capture time replaces the original date tags.
-  const taken = realTaken(opts.takenAt)
   const stamp = (tag: number) =>
     ({ tag, type: 2, count: 20, data: ascii(taken!) })
   const dated = (e: Entry) =>
     (taken && DATE_TAGS.has(e.tag) ? stamp(e.tag) : e)
 
+  // Info texts replace the camera's; an emptied one removes it.
+  const info = new Map([
+    [TAG.description, texts.description],
+    [TAG.artist, texts.author],
+    [TAG.copyright, texts.copyright]
+  ])
+  const replaced = (e: Entry) => info.get(e.tag) !== undefined ||
+    (e.tag === TAG.description && placeholder(tiff, e))
+
   const ifd0 = tiff.ifd0
-    .filter(e => !DROP_IFD0.has(e.tag))
+    .filter(e => !DROP_IFD0.has(e.tag) && !replaced(e))
     .map(e => e.tag === TAG.orientation
       ? { ...e, type: 3, count: 1, data: word(1, 2) }
       : e)
     .map(dated)
+  for (const [tag, text] of info) {
+    if (text) ifd0.push(utf8(tag, text))
+  }
+
   const exif = tiff.exif.filter(e => !DROP_EXIF.has(e.tag)).map(dated)
   if (taken && !find(exif, TAG.dateTimeOriginal)) {
     exif.push(stamp(TAG.dateTimeOriginal))
@@ -195,7 +295,13 @@ export function exportExif(bytes: Uint8Array, opts: ExportOptions) {
     exif.push(srgb, long(TAG.pixelX, opts.width), long(TAG.pixelY, opts.height))
   }
 
-  const gps = opts.stripGps ? [] : tiff.gps
+  // A location set in Lightbox replaces the camera's; null removes both.
+  const camera = opts.stripGps ? [] : tiff.gps
+  const gps = place === undefined
+    ? camera
+    : place && validPlace(place) ? gpsIfd(place, tiff.little) : []
+  if (!ifd0.length && !exif.length && !gps.length) return null
+
   const body = buildTiff(tiff.little, ifd0, exif, gps, long)
   const length = body.length + 8
   if (length > 0xffff) return null
@@ -205,8 +311,130 @@ export function exportExif(bytes: Uint8Array, opts: ExportOptions) {
   return new Uint8Array([...header, ...tag, ...body])
 }
 
+function textsOf(meta: Meta): Texts {
+  const keywords = meta.keywords
+    ?.map(k => clean(k, LIMIT.keyword))
+    .filter((k): k is string => Boolean(k))
+  return {
+    title: clean(meta.title, LIMIT.title),
+    description: clean(meta.description, LIMIT.description),
+    keywords: keywords && [...new Set(keywords)].slice(0, LIMIT.keywords),
+    author: clean(meta.author, LIMIT.author),
+    copyright: clean(meta.copyright, LIMIT.copyright)
+  }
+}
+
+// Line breaks and tabs become spaces, other control characters go.
+function clean(text: string | undefined, limit: number) {
+  if (typeof text !== 'string') return undefined
+
+  const plain = text
+    .replace(/[\t\n\v\f\r]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\ufffe\uffff]/g, '')
+    .trim()
+  return [...plain].slice(0, limit).join('').trim()
+}
+
+function placeholder(tiff: Tiff, entry: Entry) {
+  const text = String(decode(tiff, entry)).trim().toLowerCase()
+  return !text || PLACEHOLDERS.has(text)
+}
+
+// An ASCII entry holding UTF-8, as most readers expect.
+function utf8(tag: number, text: string): Entry {
+  const data = new TextEncoder().encode(text + '\0')
+  return { tag, type: 2, count: data.length, data }
+}
+
+// GPS IFD for a location: version 2.3, the hemispheres, and degrees,
+// minutes and seconds in ten-thousandths, about 3 mm.
+function gpsIfd(place: Location, little: boolean): Entry[] {
+  const dms = (value: number) => {
+    const units = Math.round(Math.abs(value) * 36_000_000)
+    const parts = [
+      [Math.floor(units / 36_000_000), 1],
+      [Math.floor(units / 600_000) % 60, 1],
+      [units % 600_000, 10_000]
+    ]
+    const data = new Uint8Array(24)
+    const view = new DataView(data.buffer)
+    parts.forEach(([n, d], i) => {
+      view.setUint32(i * 8, n, little)
+      view.setUint32(i * 8 + 4, d, little)
+    })
+    return { type: 5, count: 3, data }
+  }
+  const ref = (letter: string) =>
+    ({ type: 2, count: 2, data: new Uint8Array([letter.charCodeAt(0), 0]) })
+
+  return [
+    { tag: GPS.version, type: 1, count: 4, data: new Uint8Array([2, 3, 0, 0]) },
+    { tag: GPS.latRef, ...ref(place.lat < 0 ? 'S' : 'N') },
+    { tag: GPS.lat, ...dms(place.lat) },
+    { tag: GPS.lonRef, ...ref(place.lon < 0 ? 'W' : 'E') },
+    { tag: GPS.lon, ...dms(place.lon) }
+  ]
+}
+
+// Dublin Core fields for the info texts, the XMP that photo managers
+// read for titles and keywords.
+function xmpSegment(texts: Texts) {
+  const alt = (text: string) =>
+    `<rdf:Alt><rdf:li xml:lang="x-default">${xml(text)}</rdf:li></rdf:Alt>`
+  const list = (kind: string, items: string[]) => `<rdf:${kind}>` +
+    items.map(item => `<rdf:li>${xml(item)}</rdf:li>`).join('') +
+    `</rdf:${kind}>`
+
+  const { title, description, keywords, author, copyright } = texts
+  const fields = [
+    title && `<dc:title>${alt(title)}</dc:title>`,
+    description && `<dc:description>${alt(description)}</dc:description>`,
+    keywords?.length && `<dc:subject>${list('Bag', keywords)}</dc:subject>`,
+    author && `<dc:creator>${list('Seq', [author])}</dc:creator>`,
+    copyright && `<dc:rights>${alt(copyright)}</dc:rights>`
+  ].filter(field => field)
+  if (!fields.length) return null
+
+  const packet = '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/">' +
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    '<rdf:Description rdf:about=""' +
+    ' xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+    fields.join('') +
+    '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>'
+  const body = new TextEncoder().encode(XMP_HEADER + packet)
+  const length = body.length + 2
+  if (length > 0xffff) return null
+
+  return new Uint8Array([0xff, 0xe1, length >> 8, length & 0xff, ...body])
+}
+
+function xml(text: string) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// The tags readers require, for files that had no EXIF: centred
+// chroma, EXIF version 2.32 and the YCbCr component order.
 function emptyTiff(): Tiff {
-  return { little: true, ifd0: [], exif: [], gps: [], interop: [], ifd1: [] }
+  const entry = (tag: number, type: number, values: number[]) => {
+    const count = values.length / TYPE_SIZE[type]
+    return { tag, type, count, data: new Uint8Array(values) }
+  }
+  return {
+    little: true,
+    ifd0: [entry(0x0213, 3, [1, 0])],
+    exif: [
+      entry(0x9000, 7, [0x30, 0x32, 0x33, 0x32]),
+      entry(0x9101, 7, [1, 2, 3, 0])
+    ],
+    gps: [],
+    interop: [],
+    ifd1: []
+  }
 }
 
 // EXIF date text: "YYYY:MM:DD HH:MM:SS" and a closing zero byte.

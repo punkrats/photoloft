@@ -58,3 +58,22 @@
 - Vitest 3 pulled a vulnerable tinypool; Vitest 4.1.12 works with
   Vite 6 on Node 22.11 (Vite 7 needs Node 22.12+).
 - `omarchy-webapp-install` refuses anything other than http(s) URLs.
+
+## Metadata
+
+- ffmpeg's MP4 muxer writes `-metadata location=` only as a 3GPP
+  `loci` box. Android and Google Photos read the QuickTime `©xyz`
+  entry in moov/udta, which ffmpeg writes for MOV output only, so the
+  server adds it after ffmpeg and shifts the stco/co64 chunk offsets.
+- `-map_metadata 0` copies a phone video's own location into the
+  export (as `loci`); an empty `-metadata location=` removes it.
+- `exiftool '-UserData:GPSCoordinates=41.9, 12.5'` writes `©xyz` into
+  an MP4 (language code 0, three decimals); Android writes language
+  0x15c7 and four decimals.
+- `exiftool -validate` wants YCbCrPositioning in IFD0 and ExifVersion
+  plus ComponentsConfiguration in the EXIF IFD of a JPEG.
+- `exiftool -j -validate file` prints only the Validate tag; add
+  `-All` to get the values as well.
+- `fetch()` throws on header values above U+00FF, so JSON sent in a
+  header needs non-ASCII escaped as `\uXXXX` (Python's `json.dumps`
+  does that by default).
