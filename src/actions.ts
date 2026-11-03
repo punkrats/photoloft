@@ -6,6 +6,7 @@ import {
   togglePlay
 } from './editing'
 import { exportDialog, runExport } from './export'
+import { formatList } from './format'
 import { emptyHistory } from './history'
 import { importEntries } from './importer'
 import {
@@ -18,7 +19,7 @@ import { render } from './render'
 import type { Aspect, SliderKey } from './schema'
 import {
   currentAlbum, endCoalescing, infoForm, selectedIds, showToast, targets,
-  viewIds, type AppState, type ExportForm, type InfoField
+  viewIds, type AlbumPick, type AppState, type ExportForm, type InfoField
 } from './state'
 import {
   chooseImportFolder, chooseLibrary, deletePhotoFiles, grantAccess,
@@ -26,7 +27,7 @@ import {
 } from './storage'
 import { localIso } from './mp4'
 import {
-  dateChange, infoChange, newInfoForm, pickerOptions
+  dateChange, infoChange, newInfoForm, toggledTicks
 } from './ui/dialogs'
 
 type Data = DOMStringMap
@@ -133,32 +134,38 @@ function newId() {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 }
 
-export function addSelectionTo(
-  state: AppState, albumId: string | null, name = ''
-) {
-  const lib = state.library
-  if (!lib) return
+// Adds `targets(state)` to every album picked, creating the new ones,
+// as one change that one undo takes back.
+export function addSelectionTo(state: AppState, picks: AlbumPick[]) {
+  if (!state.library || !picks.length) return
 
-  const id = albumId ?? newId()
-  const created = albumId ? lib : createAlbum(lib, id, name)
-  const ids = targets(state)
-  commit(state, addToAlbum(created, id, ids))
+  const photos = targets(state)
+  let lib = state.library
+  const ids: string[] = []
+  for (const pick of picks) {
+    const id = 'id' in pick ? pick.id : newId()
+    if ('name' in pick) lib = createAlbum(lib, id, pick.name)
+    lib = addToAlbum(lib, id, photos)
+    ids.push(id)
+  }
+  commit(state, lib)
 
-  const album = state.library!.albums.find(a => a.id === id)!
+  const names = ids.map(id => lib.albums.find(a => a.id === id)!.name)
+  const where = names.length > 3 ? `${names.length} albums` : formatList(names)
   state.dialog = null
-  const count = `${ids.length} ${plural(ids.length)}`
-  showToast(state, `Added ${count} to ${album.name}.`)
+  const count = `${photos.length} ${plural(photos.length)}`
+  showToast(state, `Added ${count} to ${where}.`)
   render(state)
 }
 
-export function pickHighlighted(state: AppState) {
+// Enter in the album picker: ticks or unticks the highlighted row and
+// clears the field for the next name.
+export function tickHighlighted(state: AppState) {
   const d = state.dialog
   if (d?.kind !== 'picker' || !state.library) return
 
-  const { albums, create } = pickerOptions(state.library, d.query)
-  const album = albums[d.index]
-  if (album) addSelectionTo(state, album.id)
-  else if (create) addSelectionTo(state, null, create)
+  const ticked = toggledTicks(state.library, d, targets(state), d.index)
+  if (ticked) state.dialog = { ...d, ticked, query: '', index: 0 }
 }
 
 export function commitRename(state: AppState, input: HTMLInputElement) {
@@ -368,10 +375,24 @@ export const clicks: Record<string, Handler> = {
   },
   'open-picker': state => {
     if (!targets(state).length || state.view.kind === 'trash') return
-    state.dialog = { kind: 'picker', query: '', index: 0 }
+    state.dialog = { kind: 'picker', query: '', index: 0, ticked: [] }
   },
-  'pick-album': (state, data) => addSelectionTo(state, data.id!),
-  'pick-new': state => pickHighlighted(state),
+
+  // The click moves focus to the tick box; the field takes it back, so
+  // the picker's keys keep working.
+  'pick-album': (state, data) => {
+    const d = state.dialog
+    if (d?.kind !== 'picker' || !state.library) return
+
+    const index = Number(data.index)
+    const ticked = toggledTicks(state.library, d, targets(state), index)
+    if (ticked) state.dialog = { ...d, ticked }
+    state.root.querySelector<HTMLElement>('[data-input="picker"]')?.focus()
+  },
+  'add-ticked': state => {
+    const d = state.dialog
+    if (d?.kind === 'picker') addSelectionTo(state, d.ticked)
+  },
   'auto-selection': state => void autoSelection(state),
   'open-date': state => openDateDialog(state),
   'apply-date': state => applyDate(state),
@@ -477,7 +498,7 @@ export function input(state: AppState, el: HTMLInputElement) {
     return
   }
   if (kind === 'picker' && state.dialog?.kind === 'picker') {
-    state.dialog = { kind: 'picker', query: el.value, index: 0 }
+    state.dialog = { ...state.dialog, query: el.value, index: 0 }
     render(state)
     return
   }

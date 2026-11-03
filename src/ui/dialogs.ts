@@ -9,8 +9,8 @@ import {
 import type { Meta } from '../meta'
 import { albumFileNames, sanitizeName } from '../naming'
 import {
-  targets, type AppState, type Dialog, type ExportForm, type InfoField,
-  type InfoForm
+  targets, type AlbumPick, type AppState, type Dialog, type ExportForm,
+  type InfoField, type InfoForm, type Picker
 } from '../state'
 import { realTaken, takenDifference } from '../taken'
 
@@ -44,6 +44,7 @@ const SHORTCUTS: [string, string][] = [
   ['Drag on empty space', 'Select with a rectangle'],
   ['Ctrl+A, Esc', 'Select all, clear selection'],
   ['G', 'Add the selection or the open photo to an album'],
+  ['Enter, Ctrl+Enter', 'Album dialog: tick an album, add to the ticked'],
   ['S', 'Star or unstar photos to keep'],
   ['I', 'Info: title, keywords, author, location'],
   ['Delete', 'Remove from album, or move to trash'],
@@ -70,7 +71,7 @@ export function dialog(state: AppState, lib: Library) {
 }
 
 function body(state: AppState, lib: Library, d: Dialog) {
-  if (d.kind === 'picker') return picker(state, lib, d.query, d.index)
+  if (d.kind === 'picker') return picker(state, lib, d)
   if (d.kind === 'export') return exportForm(lib, d.form)
   if (d.kind === 'help') return help()
   if (d.kind === 'date') return dateForm(lib, d)
@@ -87,53 +88,108 @@ function body(state: AppState, lib: Library, d: Dialog) {
 
 // ─── Album picker ────────────────────────────────────────────────────
 
-export function pickerOptions(lib: Library, query: string) {
-  const q = query.trim().toLowerCase()
-  const albums = albumsByName(lib).filter(a => a.name.toLowerCase().includes(q))
-  const exact = albums.some(a => a.name.toLowerCase() === q)
-  return { albums, create: q && !exact ? query.trim() : null }
+// A row of the album picker. A held album holds every one of the
+// photos, so it shows ticked and stays so.
+export type PickerRow = {
+  pick: AlbumPick
+  name: string
+  ticked: boolean
+  held: boolean
 }
 
-function picker(state: AppState, lib: Library, query: string, index: number) {
-  const { albums, create } = pickerOptions(lib, query)
-  const count = targets(state).length
+// The albums whose names hold the typed text, A to Z, then the new
+// albums ticked so far that match it, then the typed name as a new
+// album when no row has it exactly.
+export function pickerRows(lib: Library, d: Picker, ids: string[]) {
+  const q = d.query.trim().toLowerCase()
+  const matches = (name: string) => name.toLowerCase().includes(q)
+
+  const rows: PickerRow[] = albumsByName(lib)
+    .filter(a => matches(a.name))
+    .map(a => {
+      const photos = new Set(a.photos)
+      const held = ids.every(id => photos.has(id))
+      const ticked = held || d.ticked.some(p => 'id' in p && p.id === a.id)
+      return { pick: { id: a.id }, name: a.name, ticked, held }
+    })
+  for (const pick of d.ticked) {
+    if ('name' in pick && matches(pick.name)) {
+      rows.push({ pick, name: pick.name, ticked: true, held: false })
+    }
+  }
+
+  const name = d.query.trim()
+  if (q && !rows.some(row => row.name.toLowerCase() === q)) {
+    rows.push({ pick: { name }, name, ticked: false, held: false })
+  }
+  return rows
+}
+
+// The ticks after ticking or unticking the row at `index`, or null
+// when it cannot change: a held album stays ticked.
+export function toggledTicks(
+  lib: Library, d: Picker, ids: string[], index: number
+) {
+  const row = pickerRows(lib, d, ids)[index]
+  if (!row || row.held) return null
+  if (!row.ticked) return [...d.ticked, row.pick]
+  return d.ticked.filter(pick => !samePick(pick, row.pick))
+}
+
+// Albums match by id, new ones by name with case ignored.
+function samePick(a: AlbumPick, b: AlbumPick) {
+  if ('id' in a) return 'id' in b && a.id === b.id
+  return 'name' in b && a.name.toLowerCase() === b.name.toLowerCase()
+}
+
+function picker(state: AppState, lib: Library, d: Picker) {
+  const ids = targets(state)
+  const rows = pickerRows(lib, d, ids)
+  const photos = `${ids.length} ${ids.length === 1 ? 'photo' : 'photos'}`
 
   return html`
-    <h3 class="dialog-title">
-      Add ${count} ${count === 1 ? 'photo' : 'photos'} to album
-    </h3>
+    <h3 class="dialog-title">Add ${photos} to albums</h3>
     <input
       class="input"
       placeholder="Album name"
       data-input="picker"
       data-autofocus
-      .value=${live(query)}
+      .value=${live(d.query)}
     >
     <div class="picker-list">
-      ${albums.map((a, i) => html`
-        <button
-          class=${classMap({ 'picker-item': true, on: i === index })}
-          data-action="pick-album"
-          data-id=${a.id}
+      ${rows.map((row, i) => html`
+        <label
+          class=${classMap({
+            'picker-item': true, on: i === d.index, held: row.held
+          })}
         >
-          <i class="icon-book-image"></i> ${a.name}
-        </button>
+          <span class="checkbox">
+            <input
+              type="checkbox"
+              .checked=${live(row.ticked)}
+              ?disabled=${row.held}
+              data-action="pick-album"
+              data-index=${i}
+            >
+            ${'id' in row.pick
+              ? html`<i class="icon-book-image"></i> ${row.name}`
+              : html`<i class="icon-plus"></i> New album "${row.name}"`}
+          </span>
+        </label>
       `)}
-      ${create
-        ? html`
-          <button
-            class=${classMap({
-              'picker-item': true, on: index === albums.length
-            })}
-            data-action="pick-new"
-          >
-            <i class="icon-plus"></i> New album "${create}"
-          </button>
-        `
-        : nothing}
-      ${!albums.length && !create
-        ? html`<p class="picker-hint">Type a name to create an album.</p>`
-        : nothing}
+      ${rows.length
+        ? nothing
+        : html`<p class="picker-hint">Type a name to create an album.</p>`}
+    </div>
+    <div class="dialog-buttons">
+      <button class="button" data-action="close-dialog">Cancel</button>
+      <button
+        class="button primary"
+        data-action="add-ticked"
+        ?disabled=${!d.ticked.length}
+      >
+        Add <kbd>Ctrl+Enter</kbd>
+      </button>
     </div>
   `
 }

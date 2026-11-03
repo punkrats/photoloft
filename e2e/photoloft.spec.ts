@@ -166,6 +166,14 @@ async function pressInOneFrame(page: Page, keys: string[]) {
   await release.evaluate(draw => draw())
 }
 
+// Ticks the album of that name in the open album dialog, a new one when
+// no album has it, and adds to it.
+async function pickAlbum(page: Page, name: string) {
+  await page.locator('[data-input="picker"]').fill(name)
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Control+Enter')
+}
+
 async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
   await dismissToast(page)
   await page.getByRole('button', { name: 'Export' }).first().click()
@@ -197,8 +205,7 @@ test('imports, sorts into an album, edits and exports', async ({ page }) => {
   await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
   await expect(page.locator('.selection-count')).toHaveText('2 selected')
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Rome 2026')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Rome 2026')
   await expect(page.locator('.toast')).
     toContainText('Added 2 photos to Rome 2026')
 
@@ -602,8 +609,7 @@ test('sorts an album with one control', async ({ page }) => {
   await importPhotos(page, added)
   await page.keyboard.press('Control+a')
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Trip')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Trip')
   await page.locator('.nav-item', { hasText: 'Trip' }).click()
 
   const sort = page.locator('[data-change="sort"]')
@@ -697,13 +703,12 @@ test('adds the photo shown in the editor to an album', async ({ page }) => {
 
   // G and the header button both offer the photo shown.
   await page.keyboard.press('g')
-  await expect(title).toHaveText('Add 1 photo to album')
+  await expect(title).toHaveText('Add 1 photo to albums')
   await page.keyboard.press('Escape')
   await expect(page.locator('.dialog')).toBeHidden()
   await button.click()
-  await expect(title).toHaveText('Add 1 photo to album')
-  await page.locator('[data-input="picker"]').fill('Keepers')
-  await page.keyboard.press('Enter')
+  await expect(title).toHaveText('Add 1 photo to albums')
+  await pickAlbum(page, 'Keepers')
   await expect(page.locator('.toast')).
     toContainText('Added 1 photo to Keepers')
   await expect(page.locator('.app')).toHaveAttribute('data-mode', 'edit')
@@ -726,6 +731,121 @@ test('adds the photo shown in the editor to an album', async ({ page }) => {
   await expect(title).toHaveText('Keyboard shortcuts')
 })
 
+function albumCount(page: Page, name: string) {
+  const album = page.locator('[data-drop-album]', { hasText: name })
+  return album.locator('.nav-count')
+}
+
+test('adds photos to several albums at once', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const field = page.locator('[data-input="picker"]')
+  const add = dialog.getByRole('button', { name: 'Add' })
+  const toast = page.locator('.toast')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+
+  // With nothing ticked, Add and Ctrl+Enter do nothing.
+  await cell(page, 'e2e-c.jpg').click()
+  await page.keyboard.press('g')
+  await expect(add).toBeDisabled()
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeVisible()
+
+  // Enter ticks each new name and clears the field; the toast counts
+  // more than three albums.
+  for (const name of ['Keepers', 'Rome', 'Atlantic', 'Bora']) {
+    await field.fill(name)
+    await page.keyboard.press('Enter')
+    await expect(field).toHaveValue('')
+  }
+  await add.click()
+  await expect(toast).toContainText('Added 1 photo to 4 albums.')
+
+  // Two albums and a new one, by keyboard alone.
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
+  await page.keyboard.press('g')
+  for (const name of ['kee', 'rome', 'Moorea']) {
+    await page.keyboard.type(name)
+    await page.keyboard.press('Enter')
+  }
+  await page.keyboard.press('Control+Enter')
+  await expect(dialog).toBeHidden()
+  await expect(toast).
+    toContainText('Added 2 photos to Keepers, Rome and Moorea.')
+  await expect(albumCount(page, 'Keepers')).toHaveText('3')
+  await expect(albumCount(page, 'Rome')).toHaveText('3')
+  await expect(albumCount(page, 'Moorea')).toHaveText('2')
+  await expect(albumCount(page, 'Atlantic')).toHaveText('1')
+
+  // One Ctrl+Z takes all of it back, the new album included.
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.nav-item', { hasText: 'Moorea' })).
+    toHaveCount(0)
+  await expect(albumCount(page, 'Keepers')).toHaveText('1')
+  await expect(albumCount(page, 'Rome')).toHaveText('1')
+})
+
+test('keeps albums that hold the photos ticked', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const field = page.locator('[data-input="picker"]')
+  const add = dialog.getByRole('button', { name: 'Add' })
+  const rows = dialog.locator('.picker-item')
+  const row = (name: string) => rows.filter({ hasText: name })
+  const box = (name: string) => row(name).locator('input[type="checkbox"]')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+
+  // Keepers holds both photos, Rome one of them.
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Keepers')
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome')
+
+  // Keepers shows ticked and greyed and stays ticked; Rome is an
+  // ordinary row. Keepers alone leaves Add disabled.
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await expect(box('Keepers')).toBeChecked()
+  await expect(box('Keepers')).toBeDisabled()
+  await expect(row('Keepers')).toHaveClass(/\bheld\b/)
+  await expect(box('Rome')).not.toBeChecked()
+  await expect(add).toBeDisabled()
+  await row('Keepers').click({ force: true })
+  await expect(box('Keepers')).toBeChecked()
+
+  // A click ticks Rome and leaves the keys with the field.
+  await row('Rome').click()
+  await expect(box('Rome')).toBeChecked()
+  await expect(field).toBeFocused()
+  await expect(add).toBeEnabled()
+
+  // Ticks survive another filter; ticked new albums stay listed until
+  // unticked.
+  await page.keyboard.type('Tahiti')
+  await expect(row('Rome')).toHaveCount(0)
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Moorea')
+  await page.keyboard.press('Enter')
+  await expect(rows).toHaveText([
+    'Keepers', 'Rome', 'New album "Tahiti"', 'New album "Moorea"'
+  ])
+  await expect(rows.locator('input:checked')).toHaveCount(4)
+  await row('Moorea').click()
+  await expect(row('Moorea')).toHaveCount(0)
+  await expect(field).toBeFocused()
+
+  // Rome gets the photo it lacked.
+  await page.keyboard.press('Control+Enter')
+  await expect(page.locator('.toast')).
+    toContainText('Added 2 photos to Rome and Tahiti.')
+  await expect(albumCount(page, 'Rome')).toHaveText('2')
+  await expect(albumCount(page, 'Tahiti')).toHaveText('2')
+  await expect(albumCount(page, 'Keepers')).toHaveText('2')
+})
+
 test('clears what the last import put in no album', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
@@ -739,8 +859,7 @@ test('clears what the last import put in no album', async ({ page }) => {
 
   await cell(page, 'e2e-c.jpg').click()
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Keepers')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Keepers')
 
   const clear = 'Trash photos not in an album'
   await page.getByRole('button', { name: clear }).click()
@@ -763,8 +882,7 @@ test('lists the photos of every album on one page', async ({ page }) => {
     await cell(page, photos[0]).click()
     await cell(page, photos[1]).click({ modifiers: ['Control'] })
     await page.keyboard.press('g')
-    await page.locator('[data-input="picker"]').fill(name)
-    await page.keyboard.press('Enter')
+    await pickAlbum(page, name)
   }
 
   await page.locator('.nav-item', { hasText: 'In albums' }).click()
@@ -838,8 +956,7 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
     await cell(page, name).click({ modifiers: ['Control'] })
   }
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Trip')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Trip')
   await page.locator('.nav-item', { hasText: 'Trip' }).click()
 
   await exportAlbum(page, async () => {
@@ -892,8 +1009,7 @@ test('corrects the capture time of a group', async ({ page }) => {
   // Exports carry the corrected time.
   await cell(page, 'e2e-b.jpg').click()
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Fixed')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Fixed')
   await page.locator('.nav-item', { hasText: 'Fixed' }).click()
   await exportAlbum(page, async () => {})
   const file = ['library', 'Exports', 'Fixed', 'Fixed-001.jpg']
@@ -926,8 +1042,7 @@ test('dates photos that had none, keeping their order', async ({ page }) => {
   // The photo without any EXIF gets the date written on export.
   await cell(page, 'plain.jpg').click()
   await page.keyboard.press('g')
-  await page.locator('[data-input="picker"]').fill('Dated')
-  await page.keyboard.press('Enter')
+  await pickAlbum(page, 'Dated')
   await page.locator('.nav-item', { hasText: 'Dated' }).click()
   await exportAlbum(page, async () => {})
   const file = ['library', 'Exports', 'Dated', 'Dated-001.jpg']

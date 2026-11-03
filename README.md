@@ -31,6 +31,11 @@ Photoloft keeps imported photos, edits and albums in its hidden
   `*.lrdata`, `@eaDir`) are left out.
 - Star keepers with `S` or the star on a thumbnail; the Starred view
   lists them.
+- Add to album (selection bar, editor header, `G`) puts the selection,
+  or the photo shown in the editor, into one or more albums: tick them
+  with a click, or type a name and press Enter (a new name creates the
+  album), then press Add or Ctrl+Enter. Albums that already hold all
+  the photos show ticked and greyed. One Ctrl+Z undoes the whole add.
 - Auto adjusts exposure, contrast, highlights, shadows, whites, blacks
   and vibrance. White balance has its own Auto button and eyedropper,
   since a guess cannot tell a colour cast from the colour of a scene.

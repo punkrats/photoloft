@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  formatBytes, formatDuration, formatShift, formatTaken
+  formatBytes, formatDuration, formatList, formatShift, formatTaken
 } from '../src/format'
 
 describe('formatBytes', () => {
@@ -61,5 +61,18 @@ describe('formatShift', () => {
 
   it('names no change', () => {
     expect(formatShift(0)).toBe('no change')
+  })
+})
+
+describe('formatList', () => {
+  it('joins names with commas and a last "and"', () => {
+    expect(formatList(['Moorea'])).toBe('Moorea')
+    expect(formatList(['Moorea', 'Keepers'])).toBe('Moorea and Keepers')
+    expect(formatList(['A', 'B', 'C'])).toBe('A, B and C')
+    expect(formatList(['A', 'B', 'C', 'D'])).toBe('A, B, C and D')
+  })
+
+  it('gives nothing for no names', () => {
+    expect(formatList([])).toBe('')
   })
 })

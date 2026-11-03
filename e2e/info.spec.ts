@@ -95,6 +95,7 @@ async function addToAlbum(page: Page, name: string) {
   await page.keyboard.press('g')
   await page.locator('[data-input="picker"]').fill(name)
   await page.keyboard.press('Enter')
+  await page.keyboard.press('Control+Enter')
   await page.locator('.nav-item', { hasText: name }).click()
 }
 

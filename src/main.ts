@@ -1,6 +1,6 @@
 import {
   addSelectionTo, change, clicks, commitRename, doubleClicks, input,
-  pickHighlighted, removeSelection
+  removeSelection, tickHighlighted
 } from './actions'
 import { commit, redoChange, saveNow, undoChange } from './commit'
 import {
@@ -21,7 +21,7 @@ import {
   viewSections, type AppState, type Point
 } from './state'
 import { hasAccess, rememberedLibrary } from './storage'
-import { pickerOptions } from './ui/dialogs'
+import { pickerRows } from './ui/dialogs'
 import { loadVisibleThumbs } from './thumbs'
 
 const PHOTOS_TYPE = 'application/x-photoloft-photos'
@@ -237,24 +237,24 @@ function renameKey(state: AppState, el: HTMLInputElement, e: KeyboardEvent) {
   render(state)
 }
 
+// Arrows move the highlight, Enter ticks or unticks the highlighted
+// row, Ctrl+Enter adds to the ticked albums, Esc closes.
 function pickerKey(state: AppState, e: KeyboardEvent) {
   const d = state.dialog
-  if (d?.kind !== 'picker') return
+  if (d?.kind !== 'picker' || !state.library) return
 
   const moves: Record<string, number> = { ArrowDown: 1, ArrowUp: -1 }
-  if (e.key in moves && state.library) {
+  if (e.key in moves) {
     e.preventDefault()
-    const { albums, create } = pickerOptions(state.library, d.query)
-    const last = albums.length - (create ? 0 : 1)
-    const index = Math.min(last, Math.max(0, d.index + moves[e.key]))
+    const last = pickerRows(state.library, d, targets(state)).length - 1
+    const index = Math.max(0, Math.min(last, d.index + moves[e.key]))
     state.dialog = { ...d, index }
-    render(state)
   }
-  if (e.key === 'Enter') pickHighlighted(state)
-  if (e.key === 'Escape') {
-    state.dialog = null
-    render(state)
-  }
+  const enter = e.key === 'Enter'
+  if (enter && (e.ctrlKey || e.metaKey)) clicks['add-ticked'](state, {}, e)
+  else if (enter) tickHighlighted(state)
+  if (e.key === 'Escape') state.dialog = null
+  render(state)
 }
 
 function shortcut(state: AppState, e: KeyboardEvent) {
@@ -586,7 +586,7 @@ function onDrop(state: AppState, e: DragEvent) {
 
   const album = currentAlbum(state)
   if (state.dropAlbum) {
-    addSelectionTo(state, state.dropAlbum)
+    addSelectionTo(state, [{ id: state.dropAlbum }])
   } else if (album && state.dropIndex !== null) {
     const ids = state.dragIds
     commit(state, moveInAlbum(state.library!, album.id, ids, state.dropIndex))

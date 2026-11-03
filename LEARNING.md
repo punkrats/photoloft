@@ -35,6 +35,10 @@
 - `preventDefault()` on a keydown for Enter stops the click a focused
   button would get from it. A window-level shortcut that claims Enter
   takes Enter from every button on screen.
+- A click on a `<label>` around a checkbox focuses the checkbox and
+  then clicks it; the label's own click finds no `data-action` of its
+  own. A `data-action` on the checkbox therefore runs once per click,
+  and a field that should keep the keys has to take focus back.
 
 - Chromium applies a video's rotation flag in `videoWidth/Height` and
   in `createImageBitmap(video)`; feeding frames as ImageBitmaps keeps
@@ -70,6 +74,9 @@
   keys, until the next frame; Chromium then moves focus to the body.
   `el.checkVisibility()` is false for a removed field and for a
   hidden one alike.
+- Playwright checks a `<label>` for actionability through its control:
+  clicking a label whose checkbox is disabled waits until the timeout.
+  `click({ force: true })` shows what the user's click does.
 
 ## Tooling
 

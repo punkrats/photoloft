@@ -66,6 +66,12 @@ $indent: calc(#{$label-width} + var(--space-2));
   &.on {
     background: var(--surface-hover);
   }
+
+  // An album that holds every one of the photos: ticked for good.
+  &.held {
+    color: var(--text-muted);
+    cursor: default;
+  }
 }
 
 .picker-hint {

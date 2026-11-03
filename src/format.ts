@@ -42,6 +42,12 @@ export function formatShift(ms: number) {
   return `${ms < 0 ? '-' : '+'}${parts.filter(Boolean).join(' ')}`
 }
 
+// "A", "A and B", "A, B and C".
+export function formatList(names: string[]) {
+  if (names.length < 2) return names.join('')
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+}
+
 function unit(value: number, name: string) {
   return value ? `${value} ${name}` : ''
 }

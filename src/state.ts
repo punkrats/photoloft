@@ -49,8 +49,22 @@ export type InfoForm = {
   searches: number
 }
 
+// An album ticked in the album picker: one of the library's, or a new
+// one by the name typed for it.
+export type AlbumPick = { id: string } | { name: string }
+
+// The album picker: the filter typed, the highlighted row and the
+// albums ticked, in the order ticked. Albums that hold every one of the
+// photos show ticked without being listed here.
+export type Picker = {
+  kind: 'picker'
+  query: string
+  index: number
+  ticked: AlbumPick[]
+}
+
 export type Dialog =
-  | { kind: 'picker', query: string, index: number }
+  | Picker
   | { kind: 'export', form: ExportForm }
   | { kind: 'confirm', message: string, confirm: string, action: string }
   | { kind: 'help' }
