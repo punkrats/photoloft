@@ -141,7 +141,7 @@ describe('exportExif', () => {
   })
 
   it.runIf(hasExiftool())('passes exiftool validation', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lightbox-'))
+    const dir = mkdtempSync(join(tmpdir(), 'photoloft-'))
     const file = join(dir, 'out.jpg')
     writeFileSync(file, exported('exif-ii.jpg'))
 
@@ -273,7 +273,7 @@ describe('exportExif with info', () => {
   })
 
   it.runIf(hasExiftool())('passes exiftool validation with info', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lightbox-'))
+    const dir = mkdtempSync(join(tmpdir(), 'photoloft-'))
     const file = join(dir, 'out.jpg')
     const meta = { ...INFO, location: PLACE }
     writeFileSync(file, withMeta(fixture('exif-ii.jpg'), meta))
@@ -298,7 +298,7 @@ describe('exportExif with info', () => {
   })
 
   it.runIf(hasExiftool())('passes validation for new EXIF', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lightbox-'))
+    const dir = mkdtempSync(join(tmpdir(), 'photoloft-'))
     const file = join(dir, 'out.jpg')
     const meta = { copyright: '(c) Me', location: PLACE }
     const options = { ...OPTIONS, takenAt: '2026-05-31T15:31:00', meta }

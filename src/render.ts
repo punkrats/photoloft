@@ -2,7 +2,7 @@ import { render as litRender } from 'lit-html'
 import type { AppState } from './state'
 import { app } from './ui/app'
 
-export const RENDERED = 'lightbox:rendered'
+export const RENDERED = 'photoloft:rendered'
 
 // Batches renders into one per animation frame. Listeners for
 // RENDERED do the work that needs the fresh DOM (painting the canvas,
@@ -30,7 +30,7 @@ function showCrash(error: unknown) {
   const note = document.getElementById('crash')
   if (!note) return
 
-  const what = `Lightbox could not show this screen (${String(error)}).`
+  const what = `Photoloft could not show this screen (${String(error)}).`
   note.hidden = false
   note.textContent =
     `${what} Your library is safe. Please reload, and report this message.`

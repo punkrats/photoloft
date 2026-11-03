@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-# Serves Lightbox's built page to this machine only and exports videos
-# with ffmpeg. A fixed local address gives Lightbox its own browser
+# Serves Photoloft's built page to this machine only and exports videos
+# with ffmpeg. A fixed local address gives Photoloft its own browser
 # origin, so Chromium can keep folder access across restarts. No
 # caching, so a rebuild shows up on the next start.
 #
-# The video API only answers the Lightbox page itself (Host and Origin
+# The video API only answers the Photoloft page itself (Host and Origin
 # checks plus a per-start token), never reads paths from requests,
 # builds every ffmpeg filter from validated numbers, and hands info
 # texts to ffmpeg as single cleaned arguments.
@@ -246,7 +246,7 @@ def ffmpeg_args(source, target, settings, lut_path, place):
 
 
 # Tags over the source's own: the capture time, the info texts set in
-# Lightbox, and the location chosen for the export, which also clears
+# Photoloft, and the location chosen for the export, which also clears
 # the camera's.
 def metadata(settings, place):
     tags = {}
@@ -263,7 +263,7 @@ def metadata(settings, place):
             for arg in ('-metadata', f'{key}={value}')]
 
 
-# The location an export carries, as ISO 6709: the one set in Lightbox,
+# The location an export carries, as ISO 6709: the one set in Photoloft,
 # else the camera's unless camera locations are removed.
 def place_of(settings, source):
     meta = settings['meta']
@@ -515,15 +515,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         try:
             settings = parse_settings(
-                json.loads(self.headers.get('X-Lightbox-Settings', '')))
-            lut_length = int(self.headers.get('X-Lightbox-Lut-Length', ''))
+                json.loads(self.headers.get('X-Photoloft-Settings', '')))
+            lut_length = int(self.headers.get('X-Photoloft-Lut-Length', ''))
             length = int(self.headers.get('Content-Length', ''))
         except ValueError as error:
             return self.reply(400, {'error': f'bad request: {error}'})
         if not 0 < lut_length < length <= MAX_UPLOAD:
             return self.reply(400, {'error': 'bad length'})
 
-        folder = pathlib.Path(tempfile.mkdtemp(prefix='lightbox-'))
+        folder = pathlib.Path(tempfile.mkdtemp(prefix='photoloft-'))
         try:
             table = parse_lut(self.rfile.read(lut_length).decode('ascii'))
             (folder / 'lut.cube').write_text(table)
@@ -542,7 +542,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return False
         if not token:
             return True
-        sent = self.headers.get('X-Lightbox-Token', '')
+        sent = self.headers.get('X-Photoloft-Token', '')
         return secrets.compare_digest(sent, self.server.token)
 
     def receive(self, path, remaining):

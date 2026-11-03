@@ -69,9 +69,9 @@ export async function exportVideo(
   const lut = cubeLut(colourOf(photo.edit))
   const settings = videoSettings(photo, choices)
   const headers = {
-    'X-Lightbox-Token': token,
-    'X-Lightbox-Settings': settingsHeader(settings),
-    'X-Lightbox-Lut-Length': String(lut.length)
+    'X-Photoloft-Token': token,
+    'X-Photoloft-Settings': settingsHeader(settings),
+    'X-Photoloft-Lut-Length': String(lut.length)
   }
   const body = new Blob([lut, original])
   const started = await fetch('/api/videos', { method: 'POST', headers, body })
@@ -95,8 +95,8 @@ export async function exportVideo(
 async function serverToken() {
   const response = await fetch('/api/token').catch(() => null)
   if (!response?.ok) {
-    throw new Error('Video export needs the Lightbox service ' +
-      '(open Lightbox from the app launcher)')
+    throw new Error('Video export needs the Photoloft service ' +
+      '(open Photoloft from the app launcher)')
   }
   return (await response.json()).token as string
 }

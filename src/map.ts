@@ -104,7 +104,7 @@ function placePin(form: InfoForm, at: Location, view: MapView) {
 
 // ─── Starting point ──────────────────────────────────────────────────
 
-// Without a location added in Lightbox the map starts where the first
+// Without a location added in Photoloft the map starts where the first
 // photo's camera recorded one, once that is read, unless the user has
 // placed the pin by then.
 export async function showCameraLocation(state: AppState, form: InfoForm) {

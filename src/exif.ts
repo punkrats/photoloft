@@ -295,7 +295,7 @@ function exifSegment(bytes: Uint8Array, opts: ExportOptions, texts: Texts) {
     exif.push(srgb, long(TAG.pixelX, opts.width), long(TAG.pixelY, opts.height))
   }
 
-  // A location set in Lightbox replaces the camera's; null removes both.
+  // A location set in Photoloft replaces the camera's; null removes both.
   const camera = opts.stripGps ? [] : tiff.gps
   const gps = place === undefined
     ? camera

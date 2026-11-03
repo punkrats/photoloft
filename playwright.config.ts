@@ -1,6 +1,6 @@
 import { defineConfig } from '@playwright/test'
 
-// Runs the built app in system Chromium, served by Lightbox's own
+// Runs the built app in system Chromium, served by Photoloft's own
 // server (which also exports videos). WebGL goes through SwiftShader,
 // Chromium's software renderer, so tests never touch the GPU and behave
 // the same on every machine.

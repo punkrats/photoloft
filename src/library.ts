@@ -465,7 +465,7 @@ type Raw = Record<string, unknown>
 
 // Saves alternate between two files, each tagged with a sequence
 // number, so a save cut short by a crash only damages one of them.
-// Unreadable copies are skipped; a copy from a newer Lightbox throws.
+// Unreadable copies are skipped; a copy from a newer Photoloft throws.
 export function pickLibrary(candidates: { name: string, text: string }[]) {
   let best: { name: string, text: string, library: Library, seq: number } |
     null = null
@@ -489,7 +489,7 @@ export function migrate(raw: unknown): Library {
   const data = record(raw)
   const version = num(data.version, VERSION)
   if (version > VERSION) {
-    throw new Error('This library was written by a newer Lightbox')
+    throw new Error('This library was written by a newer Photoloft')
   }
 
   const photos: Record<string, Photo> = {}

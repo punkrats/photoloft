@@ -25,7 +25,7 @@ import { hasAccess, rememberedLibrary } from './storage'
 import { pickerOptions } from './ui/dialogs'
 import { loadVisibleThumbs } from './thumbs'
 
-const PHOTOS_TYPE = 'application/x-lightbox-photos'
+const PHOTOS_TYPE = 'application/x-photoloft-photos'
 const TOAST_MS = 5000
 
 const root = document.getElementById('app')!

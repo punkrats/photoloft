@@ -13,7 +13,12 @@ export type Dirs = {
   seq: number
 }
 
+// These keep the app's former name on purpose: existing installs find
+// their library folder and the pickers start where they last were.
 const DB_NAME = 'lightbox'
+const LIBRARY_PICKER = 'lightbox-library'
+const IMPORT_PICKER = 'lightbox-import'
+
 const STORE = 'handles'
 const HANDLE_KEY = 'library'
 const SLOTS = ['library-a.json', 'library-b.json']
@@ -42,12 +47,12 @@ export async function rememberLibrary(handle: FileSystemDirectoryHandle) {
 }
 
 export async function chooseLibrary() {
-  const options = { id: 'lightbox-library', startIn: 'pictures', ...WRITE }
+  const options = { id: LIBRARY_PICKER, startIn: 'pictures', ...WRITE }
   return window.showDirectoryPicker(options as DirectoryPickerOptions)
 }
 
 export async function chooseImportFolder() {
-  const options = { id: 'lightbox-import', startIn: 'pictures', mode: 'read' }
+  const options = { id: IMPORT_PICKER, startIn: 'pictures', mode: 'read' }
   return window.showDirectoryPicker(options as DirectoryPickerOptions)
 }
 

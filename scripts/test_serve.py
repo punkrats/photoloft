@@ -387,9 +387,9 @@ class Api(unittest.TestCase):
         table = lut().encode()
         body = table + (FIXTURES / 'clip.mp4').read_bytes()
         headers = {
-            'X-Lightbox-Token': token,
-            'X-Lightbox-Settings': settings,
-            'X-Lightbox-Lut-Length': str(len(table))
+            'X-Photoloft-Token': token,
+            'X-Photoloft-Settings': settings,
+            'X-Photoloft-Lut-Length': str(len(table))
         }
         job = json.loads(self.call('/api/videos', body, headers))['job']
 
@@ -418,7 +418,7 @@ class Api(unittest.TestCase):
 
     def test_refuses_requests_without_the_token(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
-            self.call('/api/videos', b'x', {'X-Lightbox-Token': 'wrong'})
+            self.call('/api/videos', b'x', {'X-Photoloft-Token': 'wrong'})
         caught.exception.close()
         self.assertEqual(caught.exception.code, 403)
 

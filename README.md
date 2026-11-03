@@ -1,4 +1,4 @@
-# Lightbox
+# Photoloft
 
 A small photo tool for Chromium: import JPEGs, sort them into albums,
 fix colour, tone and angle, and export each album as consecutively
@@ -13,13 +13,14 @@ scripts/install-launcher.sh
 ```
 
 The script adds a small user service that serves the built page at
-http://127.0.0.1:47321 and a launcher entry; start Lightbox from the app
-launcher (Super+Space). The fixed local address lets Chromium remember
-folder access ("Allow on every visit"), which it does not do for pages
-opened from disk. The script header lists how to remove both.
+http://127.0.0.1:47321 and a launcher entry; start Photoloft from the
+app launcher (Super+Space). The fixed local address lets Chromium
+remember folder access ("Allow on every visit"), which it does not do
+for pages opened from disk. Run the script again after moving the
+project. Its header lists how to remove both.
 
-On first start, pick an empty folder such as `~/Pictures/Lightbox`.
-Lightbox keeps imported photos, edits and albums in its hidden
+On first start, pick an empty folder such as `~/Pictures/Photoloft`.
+Photoloft keeps imported photos, edits and albums in its hidden
 `.library` folder there and writes exports to `Exports/<album>/`.
 
 - Import folder takes a folder with all its subfolders; Import photos
@@ -59,11 +60,11 @@ Lightbox keeps imported photos, edits and albums in its hidden
   offline. The map and the search are the only parts that go online.
 - Exports carry the info as EXIF and XMP; originals stay untouched.
   "Remove camera locations" in the export dialog drops the locations
-  cameras recorded; a location added in Lightbox is always written,
+  cameras recorded; a location added in Photoloft is always written,
   and Remove location in the Info dialog leaves a photo without any.
 - Videos (MP4, MOV) import, play (Space, K) and take the same colour
   and crop settings as photos. Album exports include them at 720p,
-  1080p or original size, made by ffmpeg through the Lightbox service
+  1080p or original size, made by ffmpeg through the Photoloft service
   with a colour table computed from the preview's maths.
 
 Press `?` in the app for keyboard shortcuts.
@@ -77,6 +78,8 @@ Press `?` in the app for keyboard shortcuts.
 - `npm run typecheck`
 - `python3 -m unittest scripts/test_serve.py` tests the server and its
   ffmpeg video export
+- `python3 -m unittest scripts/test_install_launcher.py` runs the
+  install script against stand-in commands in a temporary home
 
 `test/fixtures/make-fixtures.sh` regenerates the test photos
 (ImageMagick and exiftool). `scripts/subset-icons.sh` rebuilds the

@@ -106,7 +106,7 @@ async function readFile(page: Page, path: string[]) {
 // The info an exported photo carries, as exiftool reads it: XMP Dublin
 // Core, the EXIF text tags and the GPS position as signed degrees.
 async function exported(page: Page, path: string[]) {
-  const file = join(mkdtempSync(join(tmpdir(), 'lightbox-')), 'p.jpg')
+  const file = join(mkdtempSync(join(tmpdir(), 'photoloft-')), 'p.jpg')
   writeFileSync(file, await readFile(page, path))
   const json = execFileSync('exiftool', [
     '-j', '-n', '-G1', '-sep', ', ', '-XMP-dc:all', '-IFD0:Artist',

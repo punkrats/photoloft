@@ -23,6 +23,12 @@
   Keep it out of a one-click Auto; offer it separately.
 - Levels and highlight decisions need per-channel maxima: a saturated
   sky clips in one channel while its luminance reads as mid grey.
+- Chromium keeps the last folder of each `showDirectoryPicker` id per
+  origin in the profile's `Preferences`
+  (`file_system_last_picked_directory`, `custom-id-<id>`), and folder
+  grants per origin and path. IndexedDB is per origin too. Renaming
+  a picker id loses its start folder; changing the port loses all of
+  it.
 - `data-foo` without a value gives `el.dataset.foo === ''`, which is
   falsy. Test boolean data attributes with `el.matches('[data-foo]')`
   or `'foo' in el.dataset`.
@@ -58,6 +64,13 @@
 - Vitest 3 pulled a vulnerable tinypool; Vitest 4.1.12 works with
   Vite 6 on Node 22.11 (Vite 7 needs Node 22.12+).
 - `omarchy-webapp-install` refuses anything other than http(s) URLs.
+- `omarchy-webapp-remove <name>` deletes the launcher and its icons,
+  succeeds even when there is none, and sends a notification unless
+  `OMARCHY_REMOVE_NOTIFY=false`.
+- To test a script that calls `systemctl --user`, put stand-ins first
+  on `PATH`, use a temporary `HOME` and leave out
+  `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`: the real
+  systemctl then cannot reach the user manager.
 
 ## Metadata
 

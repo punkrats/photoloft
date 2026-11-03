@@ -10,7 +10,7 @@ export function sidebar(state: AppState, lib: Library) {
   return html`
     <aside class="sidebar">
       <header class="sidebar-head">
-        <span class="sidebar-brand"><i class="icon-images"></i> Lightbox</span>
+        <span class="sidebar-brand"><i class="icon-images"></i> Photoloft</span>
         <span class="sidebar-folder" data-saved=${isSaved(state)}>
           ${state.dirs?.root.name} - ${isSaved(state) ? 'Saved' : 'Saving'}
         </span>

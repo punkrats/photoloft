@@ -34,7 +34,7 @@ export async function importEntries(
 ) {
   if (!state.library || !state.dirs || state.progress) return
   if (await includesLibrary(state.dirs.root, entries)) {
-    showToast(state, 'This is the Lightbox library folder. ' +
+    showToast(state, 'This is the Photoloft library folder. ' +
       'Pick the folder your photos are in.')
     render(state)
     return

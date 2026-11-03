@@ -6,10 +6,10 @@ export function welcome(state: AppState) {
 
   return html`
     <section class="welcome">
-      <h1 class="welcome-title"><i class="icon-images"></i> Lightbox</h1>
+      <h1 class="welcome-title"><i class="icon-images"></i> Photoloft</h1>
       <p class="welcome-text">
-        Lightbox keeps your photos, albums and edits in one folder.
-        Choose an empty folder, for example Pictures/Lightbox.
+        Photoloft keeps your photos, albums and edits in one folder.
+        Choose an empty folder, for example Pictures/Photoloft.
       </p>
       <div class="welcome-actions">
         ${remembered

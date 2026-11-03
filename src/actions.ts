@@ -38,7 +38,7 @@ async function openFrom(state: AppState, handle: FileSystemDirectoryHandle) {
   state.error = null
   try {
     if (!(await grantAccess(handle))) {
-      state.error = 'Lightbox needs read and write access to the folder.'
+      state.error = 'Photoloft needs read and write access to the folder.'
       return
     }
     const { dirs, library, restored } = await openLibrary(handle)

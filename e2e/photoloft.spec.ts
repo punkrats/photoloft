@@ -377,6 +377,28 @@ test('recovers from damaged library files', async ({ page }) => {
   await expect(page.locator('.cell')).toHaveCount(2)
 })
 
+test('reopens a folder remembered under the former name', async ({ page }) => {
+  await page.goto('/')
+
+  // The database, store and key an existing install wrote.
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const folder = await root.getDirectoryHandle('Lightbox', { create: true })
+    const open = indexedDB.open('lightbox', 1)
+    open.onupgradeneeded = () => open.result.createObjectStore('handles')
+    const db = await new Promise<IDBDatabase>(resolve => {
+      open.onsuccess = () => resolve(open.result)
+    })
+    const tx = db.transaction('handles', 'readwrite')
+    tx.objectStore('handles').put(folder, 'library')
+    await new Promise(resolve => { tx.oncomplete = resolve })
+    db.close()
+  })
+
+  await page.reload()
+  await expect(page.locator('.sidebar-folder')).toContainText('Lightbox')
+})
+
 test('keeps saving during non-stop changes', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg'])
@@ -441,7 +463,7 @@ test('never imports its own library folder', async ({ page }) => {
 
   await importFolder(page, ['library'])
   await expect(page.locator('.toast')).
-    toContainText('This is the Lightbox library folder')
+    toContainText('This is the Photoloft library folder')
 })
 
 test('stars photos to keep', async ({ page }) => {
@@ -638,7 +660,7 @@ test('lists the photos of every album on one page', async ({ page }) => {
 
 // Size and first pixel of a video, read with ffprobe and ffmpeg.
 function inspectVideo(bytes: Uint8Array) {
-  const file = join(mkdtempSync(join(tmpdir(), 'lightbox-')), 'v.mp4')
+  const file = join(mkdtempSync(join(tmpdir(), 'photoloft-')), 'v.mp4')
   writeFileSync(file, bytes)
   const probe = execFileSync('ffprobe', [
     '-v', 'error', '-select_streams', 'v:0', '-show_entries',
