@@ -93,6 +93,16 @@ export function cellsInRect(g: GridLayout, rect: Rect, count: number) {
   return hits
 }
 
+// The scroll position nearest to `scroll` that shows the whole cell
+// with the grid's padding around it; its top when the view is shorter.
+export function revealScroll(
+  g: GridLayout, index: number, scroll: number, height: number
+) {
+  const rect = cellRect(g, index)
+  const lowest = rect.y + rect.h + PAD - height
+  return clamp(scroll, lowest, rect.y - PAD)
+}
+
 // Index a dragged block lands before: the nearest gap between cells on
 // the row under the pointer, or the first photo of a section when over
 // its header.

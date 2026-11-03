@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cellRect, cellsInRect, GAP, gridLayout, HEADER, insertionIndex, PAD,
-  plain, type Section
+  plain, revealScroll, type Section
 } from '../src/grid-layout'
 
 // 4 columns of 160 px: 16 + 4 * 160 + 3 * 8 + 16 = 696.
@@ -64,6 +64,28 @@ describe('insertionIndex', () => {
 
   it('clamps to the end of the list', () => {
     expect(insertionIndex(g, 690, 590, 10)).toBe(10)
+  })
+})
+
+describe('revealScroll', () => {
+  const g = gridLayout(width, 600, 0, plain(100))
+
+  it('keeps the position while the whole cell is in view', () => {
+    expect(revealScroll(g, 13, 300, 600)).toBe(300)
+  })
+
+  it('scrolls down only until the cell shows above the padding', () => {
+    const bottom = PAD + 5 * 168 + 160
+    expect(revealScroll(g, 20, 0, 600)).toBe(bottom + PAD - 600)
+  })
+
+  it('scrolls up only until the cell shows below the padding', () => {
+    expect(revealScroll(g, 4, 1000, 600)).toBe(168)
+    expect(revealScroll(g, 0, 1000, 600)).toBe(0)
+  })
+
+  it('shows the top of a cell taller than the view', () => {
+    expect(revealScroll(g, 4, 0, 100)).toBe(168)
   })
 })
 

@@ -11,7 +11,7 @@ import {
 } from './editing'
 import type { Handle } from './geometry'
 import {
-  cellRect, cellsInRect, gridLayout, insertionIndex
+  cellsInRect, gridLayout, insertionIndex, revealScroll
 } from './grid-layout'
 import { importEntries } from './importer'
 import { moveInAlbum } from './library'
@@ -80,6 +80,9 @@ function afterRender(state: AppState) {
   hideToastLater(state)
 }
 
+// The grid and the stage hide each other. A hidden element reports a
+// 0 x 0 box; keeping its last real size keeps the grid's layout, and
+// with it the scroll position, while the editor is open.
 function observeSizes(state: AppState) {
   const watch = (selector: string, apply: (r: DOMRectReadOnly) => void) => {
     const el = state.root.querySelector<HTMLElement>(selector)
@@ -87,7 +90,10 @@ function observeSizes(state: AppState) {
 
     el.dataset.observed = 'true'
     new ResizeObserver(([entry]) => {
-      apply(entry.contentRect)
+      const r = entry.contentRect
+      if (r.width === 0 && r.height === 0) return
+
+      apply(r)
       render(state)
     }).observe(el)
   }
@@ -110,6 +116,8 @@ function followFilmstrip(state: AppState) {
   item.scrollIntoView({ inline: 'center', block: 'nearest' })
 }
 
+// Back from the editor, the grid returns to where it was and scrolls
+// only as far as needed to show the photo last viewed.
 function revealCurrent(state: AppState) {
   const grid = state.root.querySelector<HTMLElement>('[data-grid]')
   if (state.mode !== 'grid' || !state.grid.reveal || !grid) return
@@ -118,10 +126,8 @@ function revealCurrent(state: AppState) {
   const index = viewIds(state).indexOf(state.current ?? '')
   if (index < 0) return
 
-  const rect = cellRect(currentGrid(state), index)
-  const above = rect.y < grid.scrollTop
-  const below = rect.y + rect.h > grid.scrollTop + grid.clientHeight
-  if (above || below) grid.scrollTop = rect.y - (grid.clientHeight - rect.h) / 2
+  const { scroll, height } = state.grid
+  grid.scrollTop = revealScroll(currentGrid(state), index, scroll, height)
 }
 
 function centreZoom(state: AppState) {
