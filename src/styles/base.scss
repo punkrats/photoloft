@@ -1,0 +1,156 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--font-md);
+  line-height: 1.4;
+}
+
+#app {
+  height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control);
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+
+  &.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+
+  &.danger {
+    color: var(--danger);
+  }
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control);
+  height: var(--control);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--font-lg);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  &.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+}
+
+.button:disabled,
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+kbd {
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  opacity: 0.7;
+}
+
+.input,
+select,
+.rename-input {
+  height: var(--control);
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.rename-input {
+  min-width: 0;
+  border-color: var(--accent);
+}
+
+.input-number {
+  width: 96px;
+}
+
+.select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: none;
+  font-size: var(--font-sm);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+
+  &.on {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+}

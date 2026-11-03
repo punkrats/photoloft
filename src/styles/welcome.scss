@@ -1,0 +1,33 @@
+.welcome {
+  display: grid;
+  justify-items: center;
+  place-content: center;
+  gap: var(--space-4);
+  height: 100vh;
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.welcome-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--font-xxl);
+}
+
+.welcome-text {
+  max-width: 440px;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.welcome-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.welcome-error {
+  margin: 0;
+  color: var(--danger);
+}

@@ -1,0 +1,141 @@
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: var(--backdrop);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(560px, 92vw);
+  max-height: 88vh;
+  padding: var(--space-5);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: var(--font-lg);
+}
+
+.dialog-text {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+// ─── Album picker ────────────────────────────────────────────────────
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &.on {
+    background: var(--surface-hover);
+  }
+}
+
+.picker-hint {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+// ─── Export form ─────────────────────────────────────────────────────
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  input[type='range'] {
+    flex: 1;
+  }
+
+  .input:not(.input-number) {
+    flex: 1;
+  }
+}
+
+.form-label {
+  flex: none;
+  width: 120px;
+  color: var(--text-muted);
+}
+
+.form-value,
+.form-unit {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.form-note {
+  margin: 0;
+  padding-left: 128px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+// ─── Shortcuts ───────────────────────────────────────────────────────
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px var(--space-4);
+  margin: 0;
+
+  dt {
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-muted);
+  }
+}

@@ -1,0 +1,60 @@
+// Neutral greys on purpose: a tinted interface skews colour judgement.
+
+:root {
+  color-scheme: dark;
+
+  --bg: #161617;
+  --surface: #1d1d1f;
+  --surface-raised: #252528;
+  --surface-hover: #303035;
+  --border: #36363c;
+  --stage: #1a1a1a;
+
+  --text: #e8e8ea;
+  --text-muted: #9d9da6;
+  --text-faint: #6e6e77;
+
+  --accent: #5b9dff;
+  --accent-text: #08142b;
+  --accent-soft: rgb(91 157 255 / 0.2);
+  --danger: #ff7070;
+  --star: #f2c94c;
+  --star-text: #2a2108;
+
+  --shade: rgb(0 0 0 / 0.55);
+  --backdrop: rgb(0 0 0 / 0.55);
+  --guide: rgb(255 255 255 / 0.85);
+  --guide-faint: rgb(255 255 255 / 0.3);
+  --shadow: 0 12px 40px rgb(0 0 0 / 0.45);
+
+  --histogram-r: rgb(255 90 90 / 0.75);
+  --histogram-g: rgb(90 220 130 / 0.75);
+  --histogram-b: rgb(100 150 255 / 0.75);
+  --track: #3a3a40;
+  --track-temperature: linear-gradient(90deg, #3d7bff, #8a8a8a, #f0c838);
+  --track-tint: linear-gradient(90deg, #3fbf5f, #8a8a8a, #d14fc4);
+
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', monospace;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 15px;
+  --font-xl: 20px;
+  --font-xxl: 30px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --control: 30px;
+
+  --sidebar-width: 236px;
+  --panel-width: 300px;
+  --toolbar-height: 52px;
+  --filmstrip-height: 86px;
+}

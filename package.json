@@ -1,0 +1,27 @@
+{
+  "name": "lightbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Simple browser photo editor: albums, colour, crop, export",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "vite build && playwright test"
+  },
+  "dependencies": {
+    "lit-html": "^3.3.3",
+    "lucide-static": "^1.66.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^22.20.5",
+    "sass-embedded": "^1.107.1",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.5",
+    "vite-plugin-singlefile": "^2.3.4",
+    "vitest": "^4.1.12"
+  }
+}

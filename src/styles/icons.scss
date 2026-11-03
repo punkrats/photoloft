@@ -1,0 +1,68 @@
+// Lucide icon font, subset to the glyphs below by
+// scripts/subset-icons.sh. Add a class here, then rerun the script.
+
+@font-face {
+  font-family: 'lucide';
+  src: url('../assets/icons.woff2') format('woff2');
+  font-display: block;
+}
+
+[class^='icon-'],
+[class*=' icon-'] {
+  font-family: 'lucide';
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+$icons: (
+  'archive-restore': '\e2cd',
+  'arrow-down-a-z': '\e415',
+  'arrow-left': '\e048',
+  'book-image': '\e549',
+  'calendar-arrow-up': '\e5ff',
+  'calendar-clock': '\e304',
+  'circle': '\e076',
+  'circle-check': '\e226',
+  'clipboard-paste': '\e3e8',
+  'copy': '\e09e',
+  'crop': '\e0ab',
+  'download': '\e0b2',
+  'eraser': '\e28f',
+    'flip-horizontal-2': '\e35e',
+  'folder-open': '\e247',
+  'folder-plus': '\e0d9',
+  'history': '\e1f5',
+  'image-plus': '\e1f7',
+  'images': '\e5c4',
+  'inbox': '\e0f7',
+  'keyboard': '\e284',
+  'layers': '\e529',
+  'loader-circle': '\e10a',
+  'pause': '\e12e',
+  'pipette': '\e13b',
+  'play': '\e13c',
+  'plus': '\e13d',
+  'rectangle-vertical': '\e377',
+  'redo-2': '\e2a0',
+  'refresh-ccw': '\e144',
+  'rotate-ccw': '\e148',
+  'rotate-cw': '\e149',
+  'ruler': '\e14b',
+  'sliders-horizontal': '\e29a',
+  'square-split-horizontal': '\e3b6',
+  'star': '\e176',
+  'trash': '\e18d',
+  'trash-2': '\e18e',
+  'undo-2': '\e2a1',
+  'wand-sparkles': '\e357',
+  'x': '\e1b2',
+  'zoom-in': '\e1b6'
+);
+
+@each $name, $glyph in $icons {
+  .icon-#{$name}::before {
+    content: $glyph;
+  }
+}

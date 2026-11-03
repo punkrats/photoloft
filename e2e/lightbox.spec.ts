@@ -1,0 +1,786 @@
+import { expect, test, type Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { colourParams, develop, type RGB } from '../src/colour'
+import { exifTags, jpegInfo } from '../src/exif'
+import { colourOf, NEUTRAL_EDIT } from '../src/schema'
+
+const FIXTURES = join(import.meta.dirname, '..', 'test', 'fixtures')
+const PHOTOS = [
+  'e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg', 'e2e-d.jpg', 'e2e-portrait.jpg',
+  'e2e-flat.jpg'
+]
+const EXPORTS = ['library', 'Exports', 'Rome 2026']
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+// The native folder picker cannot be driven, so it hands out folders in
+// the browser's private file system, which has the same API: `library`
+// for the library, and `window.importPath` when importing a folder.
+async function openLibrary(page: Page) {
+  await page.addInitScript(() => {
+    const page = window as unknown as { importPath?: string[] }
+    window.showDirectoryPicker = async options => {
+      const importing = options?.id === 'lightbox-import'
+      const path = importing ? page.importPath ?? [] : ['library']
+      let dir = await navigator.storage.getDirectory()
+      for (const part of path) {
+        dir = await dir.getDirectoryHandle(part, { create: true })
+      }
+      return dir
+    }
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Choose library folder' }).click()
+  await expect(page.locator('.sidebar')).toBeVisible()
+}
+
+// Waits for the library file to be written, so a reload sees the
+// latest changes.
+async function saved(page: Page) {
+  await expect(page.locator('[data-saved="true"]')).toBeVisible()
+}
+
+async function importPhotos(page: Page, names: string[]) {
+  const files = names.map(name => join(FIXTURES, name))
+  await page.locator('#import-files').setInputFiles(files)
+  await expect(page.locator('.toast')).toContainText('Imported')
+}
+
+// Copies fixtures into the private file system, `path: fixture`.
+async function writeFixtures(page: Page, files: Record<string, string>) {
+  for (const [path, name] of Object.entries(files)) {
+    const bytes = [...readFileSync(join(FIXTURES, name))]
+    await page.evaluate(async ({ path, bytes }) => {
+      const parts = path.split('/')
+      let dir = await navigator.storage.getDirectory()
+      for (const part of parts.slice(0, -1)) {
+        dir = await dir.getDirectoryHandle(part, { create: true })
+      }
+      const handle = await dir.getFileHandle(parts.at(-1)!, { create: true })
+      const stream = await handle.createWritable()
+      await stream.write(new Uint8Array(bytes))
+      await stream.close()
+    }, { path, bytes })
+  }
+}
+
+async function importFolder(page: Page, path: string[]) {
+  await dismissToast(page)
+  await page.evaluate(path => {
+    (window as unknown as { importPath: string[] }).importPath = path
+  }, path)
+  const toolbar = page.locator('.toolbar')
+  await toolbar.getByRole('button', { name: 'Import folder' }).click()
+  await expect(page.locator('.toast')).toBeVisible()
+}
+
+function slider(page: Page, label: string) {
+  return page.locator('.slider', { hasText: label }).locator('output')
+}
+
+function cell(page: Page, name: string) {
+  return page.locator('.cell', { hasText: name })
+}
+
+function names(page: Page) {
+  return page.locator('.cell .cell-file')
+}
+
+async function listFiles(page: Page, path: string[]) {
+  return page.evaluate(async path => {
+    let dir = await navigator.storage.getDirectory()
+    for (const part of path) dir = await dir.getDirectoryHandle(part)
+    const found: string[] = []
+    for await (const entry of dir.values()) found.push(entry.name)
+    return found.sort()
+  }, path)
+}
+
+async function readFile(page: Page, path: string[]) {
+  const bytes = await page.evaluate(async path => {
+    let dir = await navigator.storage.getDirectory()
+    for (const part of path.slice(0, -1)) {
+      dir = await dir.getDirectoryHandle(part)
+    }
+    const file = await (await dir.getFileHandle(path.at(-1)!)).getFile()
+    return [...new Uint8Array(await file.arrayBuffer())]
+  }, path)
+  return new Uint8Array(bytes)
+}
+
+async function writeFile(page: Page, path: string[], text: string) {
+  await page.evaluate(async ({ path, text }) => {
+    let dir = await navigator.storage.getDirectory()
+    for (const part of path.slice(0, -1)) {
+      dir = await dir.getDirectoryHandle(part)
+    }
+    const handle = await dir.getFileHandle(path.at(-1)!, { create: true })
+    const stream = await handle.createWritable()
+    await stream.write(text)
+    await stream.close()
+  }, { path, text })
+}
+
+async function meanColour(page: Page, path: string[]) {
+  return page.evaluate(async path => {
+    let dir = await navigator.storage.getDirectory()
+    for (const part of path.slice(0, -1)) {
+      dir = await dir.getDirectoryHandle(part)
+    }
+    const file = await (await dir.getFileHandle(path.at(-1)!)).getFile()
+    const bitmap = await createImageBitmap(file)
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+    const ctx = canvas.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const data = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+    const sum = [0, 0, 0]
+    for (let i = 0; i < data.length; i += 4) {
+      for (let c = 0; c < 3; c++) sum[c] += data[i + c]
+    }
+    return sum.map(s => s / (data.length / 4))
+  }, path)
+}
+
+async function dismissToast(page: Page) {
+  const toast = page.locator('.toast')
+  if (await toast.isVisible()) await toast.click()
+  await expect(toast).toBeHidden()
+}
+
+async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
+  await dismissToast(page)
+  await page.getByRole('button', { name: 'Export' }).first().click()
+  await expect(page.locator('.dialog')).toBeVisible()
+  await setup(page)
+  await page.locator('.dialog').getByRole('button', { name: 'Export' }).click()
+  await expect(page.locator('.toast')).toContainText('Exported')
+}
+
+// ─── Flows ───────────────────────────────────────────────────────────
+
+test('imports, sorts into an album, edits and exports', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, [...PHOTOS, 'not-a-jpeg.png'])
+  await expect(page.locator('.toast')).toContainText('Imported 6 photos')
+  await expect(page.locator('.toast')).toContainText('1 skipped')
+  await expect(page.locator('.cell')).toHaveCount(6)
+  await expect(names(page)).toHaveText(PHOTOS)
+
+  // EXIF orientation is applied: the sideways photo shows landscape.
+  const portrait = cell(page, 'e2e-portrait.jpg').locator('img')
+  await expect(portrait).toHaveJSProperty('complete', true)
+  const shape = await portrait.evaluate((img: HTMLImageElement) =>
+    [img.naturalWidth, img.naturalHeight])
+  expect(shape[0]).toBeGreaterThan(shape[1])
+
+  // Select two photos and add them to a new album with G.
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
+  await expect(page.locator('.selection-count')).toHaveText('2 selected')
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Rome 2026')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.toast')).
+    toContainText('Added 2 photos to Rome 2026')
+
+  // Drag a third photo onto the album in the sidebar.
+  const album = page.locator('[data-drop-album]', { hasText: 'Rome 2026' })
+  await cell(page, 'e2e-flat.jpg').click()
+  await cell(page, 'e2e-flat.jpg').dragTo(album)
+  await expect(album.locator('.nav-count')).toHaveText('3')
+
+  // Unsorted lists what is in no album.
+  await page.locator('.nav-item', { hasText: 'Unsorted' }).click()
+  await expect(page.locator('.cell')).toHaveCount(3)
+
+  // Reorder inside the album by dragging the flat photo to the front.
+  await album.click()
+  await expect(names(page)).
+    toHaveText(['e2e-a.jpg', 'e2e-b.jpg', 'e2e-flat.jpg'])
+  await cell(page, 'e2e-flat.jpg').dragTo(cell(page, 'e2e-a.jpg'), {
+    targetPosition: { x: 4, y: 40 }
+  })
+  await expect(names(page)).
+    toHaveText(['e2e-flat.jpg', 'e2e-a.jpg', 'e2e-b.jpg'])
+
+  // Edit the flat photo.
+  await cell(page, 'e2e-flat.jpg').dblclick()
+  await expect(page.locator('.editor')).toBeVisible()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await page.locator('input[data-key="exposure"]').fill('1')
+  await page.locator('input[data-key="temperature"]').fill('40')
+  await expect(slider(page, 'Exposure')).toHaveText('1.00')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.library')).toBeVisible()
+
+  // Export with album names, a size cap and EXIF carried over.
+  await exportAlbum(page, async () => {
+    await page.locator('.dialog .input').first().fill('Rome')
+    await page.locator('[data-field="size"]').selectOption('custom')
+    await page.locator('[data-field="customSize"]').fill('200')
+  })
+  expect(await listFiles(page, EXPORTS)).
+    toEqual(['Rome-001.jpg', 'Rome-002.jpg', 'Rome-003.jpg'])
+
+  const second = await readFile(page, [...EXPORTS, 'Rome-002.jpg'])
+  expect(jpegInfo(second)).toMatchObject({ width: 200, height: 150 })
+  expect(exifTags(second).get('exif.0x9003')).toBe('2024:01:01 10:00:00')
+
+  // The GPU output matches the reference maths.
+  const flat = await readFile(page, [...EXPORTS, 'Rome-001.jpg'])
+  expect(jpegInfo(flat)).toMatchObject({ width: 64, height: 48 })
+  const source: RGB = [150 / 255, 120 / 255, 90 / 255]
+  const edit = { ...colourOf(NEUTRAL_EDIT), exposure: 1, temperature: 40 }
+  const params = colourParams(edit)
+  const expected = develop(source, params).map(v => v * 255)
+  const actual = await meanColour(page, [...EXPORTS, 'Rome-001.jpg'])
+  actual.forEach((v, i) => expect(Math.abs(v - expected[i])).toBeLessThan(3))
+
+  // A size limit forces smaller files.
+  const sizes = await Promise.all(['Rome-002.jpg', 'Rome-003.jpg'].map(name =>
+    readFile(page, [...EXPORTS, name]).then(b => b.length)))
+  const limit = Math.floor(Math.max(...sizes) * 0.6)
+  await exportAlbum(page, async () => {
+    await page.locator('[data-field="limit"]').selectOption('custom')
+    const megabytes = String(limit / 1_000_000)
+    await page.locator('[data-field="customLimit"]').fill(megabytes)
+  })
+  for (const name of await listFiles(page, EXPORTS)) {
+    const bytes = await readFile(page, [...EXPORTS, name])
+    expect(bytes.length).toBeLessThanOrEqual(limit)
+  }
+
+  // A re-export removes files of photos taken out of the album and
+  // leaves hand-added files alone.
+  await writeFile(page, [...EXPORTS, 'notes.txt'], 'mine')
+  await cell(page, 'e2e-b.jpg').click()
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.cell')).toHaveCount(2)
+  await exportAlbum(page, async () => {
+    await page.locator('[data-field="limit"]').selectOption('none')
+  })
+  expect(await listFiles(page, EXPORTS)).
+    toEqual(['Rome-001.jpg', 'Rome-002.jpg', 'notes.txt'])
+
+  // Everything survives a reload.
+  await saved(page)
+  await page.reload()
+  await expect(page.locator('.sidebar')).toBeVisible()
+  await page.locator('.nav-item', { hasText: 'Rome 2026' }).click()
+  await expect(names(page)).toHaveText(['e2e-flat.jpg', 'e2e-a.jpg'])
+  await cell(page, 'e2e-flat.jpg').dblclick()
+  await expect(slider(page, 'Exposure')).toHaveText('1.00')
+})
+
+test('selects with a rectangle and runs Auto on it', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, PHOTOS)
+
+  const first = await cell(page, 'e2e-a.jpg').boundingBox()
+  const grid = await page.locator('[data-grid]').boundingBox()
+  await page.mouse.move(grid!.x + grid!.width - 5, grid!.y + grid!.height - 5)
+  await page.mouse.down()
+  await page.mouse.move(first!.x + 20, first!.y + 20, { steps: 8 })
+  await page.mouse.up()
+  await expect(page.locator('.selection-count')).toHaveText('6 selected')
+
+  const bar = page.locator('.selection-bar')
+  await bar.getByRole('button', { name: 'Auto' }).click()
+  await expect(page.locator('.toast')).toContainText('Auto applied to 6 photos')
+
+  // Auto leaves white balance alone; its own button warms the blue photo.
+  await cell(page, 'e2e-b.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  const temperature = slider(page, 'Temperature')
+  await expect(temperature).toHaveText('0')
+  await page.getByTitle('Remove a colour cast automatically').click()
+  await expect.poll(async () => Number(await temperature.textContent())).
+    toBeGreaterThan(0)
+})
+
+test('crops to a square and rotates', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+
+  await page.keyboard.press('r')
+  await expect(page.locator('.crop-box')).toBeVisible()
+  await page.getByRole('button', { name: '1:1' }).click()
+  await page.locator('input[data-key="angle"]').fill('10')
+  const box = await page.locator('.crop-box').boundingBox()
+  expect(Math.abs(box!.width - box!.height)).toBeLessThan(2)
+  await page.getByRole('button', { name: 'Done' }).click()
+
+  const shape = async () => {
+    const img = page.locator('.film-item img')
+    return img.evaluate((el: HTMLImageElement) => {
+      return el.naturalWidth / el.naturalHeight
+    })
+  }
+  await expect.poll(shape, { timeout: 10_000 }).toBeCloseTo(1, 1)
+
+  await page.keyboard.press('r')
+  await page.getByTitle('Rotate right').click()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect.poll(shape, { timeout: 10_000 }).toBeLessThan(1)
+})
+
+test('trashes, undoes, restores and empties the trash', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.cell')).toHaveCount(1)
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.cell')).toHaveCount(2)
+
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('Delete')
+  await page.locator('.nav-item', { hasText: 'Trash' }).click()
+  await expect(page.locator('.cell')).toHaveCount(1)
+  await cell(page, 'e2e-a.jpg').click()
+  await page.getByRole('button', { name: 'Restore' }).click()
+  await expect(page.locator('.cell')).toHaveCount(0)
+
+  await page.locator('.nav-item', { hasText: 'All photos' }).click()
+  await cell(page, 'e2e-b.jpg').click()
+  await page.keyboard.press('Delete')
+  await page.locator('.nav-item', { hasText: 'Trash' }).click()
+  await page.getByRole('button', { name: 'Empty trash' }).click()
+  await page.locator('.dialog').getByRole('button', { name: 'Delete' }).click()
+  await expect(page.locator('.toast')).toContainText('Deleted 1 photo for good')
+  const originals = await listFiles(page, ['library', '.library', 'originals'])
+  expect(originals).toHaveLength(1)
+})
+
+test('recovers from damaged library files', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+  await saved(page)
+
+  // Reopening makes a backup; then both save slots get damaged.
+  await page.reload()
+  await expect(page.locator('.sidebar')).toBeVisible()
+  await expect(page.locator('.cell')).toHaveCount(2)
+  for (const slot of ['library-a.json', 'library-b.json']) {
+    await writeFile(page, ['library', '.library', slot], '{"vers')
+  }
+
+  await page.reload()
+  await expect(page.locator('.sidebar')).toBeVisible()
+  await expect(page.locator('.toast')).toContainText('was damaged')
+  await expect(page.locator('.cell')).toHaveCount(2)
+})
+
+test('keeps saving during non-stop changes', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await saved(page)
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+
+  const exposure = page.locator('input[data-key="exposure"]')
+  for (let i = 1; i <= 15; i++) {
+    await exposure.fill(String(i / 10))
+    await page.waitForTimeout(200)
+  }
+
+  // Changes never paused for long, yet the file was written meanwhile.
+  const slots = ['library-a.json', 'library-b.json']
+  const seqs = await Promise.all(slots.map(async slot => {
+    const bytes = await readFile(page, ['library', '.library', slot])
+    return JSON.parse(new TextDecoder().decode(bytes)).seq as number
+  }))
+  expect(Math.max(...seqs)).toBeGreaterThanOrEqual(2)
+})
+
+test('imports a folder with all its subfolders, once', async ({ page }) => {
+  await openLibrary(page)
+  await writeFixtures(page, {
+    'card/a.jpg': 'e2e-a.jpg',
+    'card/2024/rome/b.jpg': 'e2e-b.jpg',
+    'card/2024/rome/deeper/c.JPG': 'e2e-c.jpg',
+    'card/2024/copy-of-b.jpg': 'e2e-b.jpg',
+    'card/.thumbnails/d.jpg': 'e2e-d.jpg',
+    'card/Other App/thumbs/13/0f3a.jpg': 'e2e-portrait.jpg',
+    'card/Catalog Previews.lrdata/e.jpg': 'e2e-flat.jpg',
+    'card/notes.png': 'not-a-jpeg.png'
+  })
+
+  await importFolder(page, ['card'])
+  const toast = page.locator('.toast')
+  await expect(toast).toContainText('Imported 3 photos')
+  await expect(toast).toContainText('1 already imported')
+  await expect(toast).toContainText('1 skipped')
+  await expect(page.locator('.cell')).toHaveCount(3)
+
+  // The same folder again adds nothing.
+  await importFolder(page, ['card'])
+  await expect(toast).toContainText('Imported 0 photos')
+  await expect(toast).toContainText('4 already imported')
+  await expect(page.locator('.cell')).toHaveCount(3)
+})
+
+test('never imports its own library folder', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await writeFixtures(page, {
+    'library/Exports/Trip/Trip-001.jpg': 'e2e-b.jpg',
+    'other/c.jpg': 'e2e-c.jpg'
+  })
+
+  // Picking the folder that holds both skips the library inside it.
+  await importFolder(page, [])
+  await expect(page.locator('.toast')).toContainText('Imported 1 photo.')
+  await expect(page.locator('.cell')).toHaveCount(2)
+
+  await importFolder(page, ['library'])
+  await expect(page.locator('.toast')).
+    toContainText('This is the Lightbox library folder')
+})
+
+test('stars photos to keep', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+
+  // S stars the selection; the star on a thumbnail stars that photo.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('s')
+  await cell(page, 'e2e-c.jpg').hover()
+  await cell(page, 'e2e-c.jpg').locator('.cell-star').click()
+
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  await expect(starred.locator('.nav-count')).toHaveText('2')
+  await starred.click()
+  await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-c.jpg'])
+
+  // In the editor S toggles the photo on screen.
+  await cell(page, 'e2e-a.jpg').dblclick()
+  const star = page.locator('.editor-bar').getByTitle('Star to keep (S)')
+  const on = /(^|\s)on(\s|$)/
+  await expect(star).toHaveClass(on)
+  await page.keyboard.press('s')
+  await expect(star).not.toHaveClass(on)
+  await page.keyboard.press('Escape')
+  await expect(names(page)).toHaveText(['e2e-c.jpg'])
+
+  await page.keyboard.press('Control+z')
+  await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-c.jpg'])
+})
+
+test('shows every photo while scrolling a large library', async ({ page }) => {
+  await openLibrary(page)
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('many', { create: true })
+    for (let i = 0; i < 60; i++) {
+      const canvas = new OffscreenCanvas(32, 24)
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = `hsl(${i * 6}, 60%, 50%)`
+      ctx.fillRect(0, 0, 32, 24)
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg' })
+      const name = `p${String(i).padStart(3, '0')}.jpg`
+      const handle = await dir.getFileHandle(name, { create: true })
+      const stream = await handle.createWritable()
+      await stream.write(blob)
+      await stream.close()
+    }
+  })
+  await importFolder(page, ['many'])
+  await expect(page.locator('.toast')).toContainText('Imported 60 photos')
+  await page.locator('[data-change="sort"]').selectOption('name')
+
+  const grid = page.locator('[data-grid]')
+  for (const at of [0.5, 1]) {
+    await grid.evaluate((el, at) => {
+      el.scrollTop = (el.scrollHeight - el.clientHeight) * at
+    }, at)
+    const index = Math.min(59, Math.round(59 * at))
+    const name = `p${String(index).padStart(3, '0')}.jpg`
+    await expect(cell(page, name)).toBeInViewport()
+  }
+})
+
+test('sorts an album with one control', async ({ page }) => {
+  const added = ['e2e-c.jpg', 'e2e-a.jpg', 'e2e-d.jpg', 'e2e-b.jpg']
+  const size = (name: string) => statSync(join(FIXTURES, name)).size
+  const bySize = [...added].sort((a, b) => size(b) - size(a))
+
+  await openLibrary(page)
+  await importPhotos(page, added)
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Trip')
+  await page.keyboard.press('Enter')
+  await page.locator('.nav-item', { hasText: 'Trip' }).click()
+
+  const sort = page.locator('[data-change="sort"]')
+  await expect(sort).toHaveValue('custom')
+  await sort.selectOption('size')
+  await expect(names(page)).toHaveText(bySize)
+  const detail = cell(page, bySize[0]).locator('.cell-detail')
+  await expect(detail).toHaveText(/^\d+ KB$/)
+
+  await sort.selectOption('date')
+  await expect(cell(page, 'e2e-a.jpg').locator('.cell-detail')).
+    toContainText('2024')
+
+  await sort.selectOption('name')
+  await expect(names(page)).toHaveText([...added].sort())
+  await expect(page.locator('.cell-detail')).toHaveCount(0)
+
+  // Dragging while sorted keeps what is shown and makes it custom.
+  const shown = [...added].sort()
+  await cell(page, shown[3]).dragTo(cell(page, shown[0]), {
+    targetPosition: { x: 4, y: 40 }
+  })
+  await expect(names(page)).toHaveText([shown[3], ...shown.slice(0, 3)])
+  await expect(sort).toHaveValue('custom')
+})
+
+test('shows photos whose camera wrote a placeholder date', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['zero-date.jpg', 'e2e-a.jpg'])
+
+  // Sorted by date, the undated photo comes last and says so.
+  await expect(names(page)).toHaveText(['e2e-a.jpg', 'zero-date.jpg'])
+  await cell(page, 'zero-date.jpg').hover()
+  await expect(cell(page, 'zero-date.jpg').locator('.cell-detail')).
+    toHaveText('No date')
+  await expect(page.locator('#crash')).toBeHidden()
+})
+
+test('shows the selected photo large with Space', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+
+  await cell(page, 'e2e-b.jpg').click()
+  await page.keyboard.press(' ')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'preview')
+  await expect(page.locator('.editor-name')).toHaveText('e2e-b.jpg')
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await expect(page.locator('.panel')).toHaveCount(0)
+  await expect(page.locator('.filmstrip')).toBeHidden()
+
+  // Arrows step through; Space returns with the last photo selected.
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.editor-name')).toHaveText('e2e-c.jpg')
+  await page.keyboard.press(' ')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
+  await expect(page.locator('.cell.selected')).toHaveCount(1)
+  const selected = page.locator('.cell.selected .cell-file')
+  await expect(selected).toHaveText('e2e-c.jpg')
+
+  // Enter goes on to editing.
+  await page.keyboard.press(' ')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'edit')
+  await expect(page.locator('.panel')).toBeVisible()
+})
+
+test('clears what the last import put in no album', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+  await dismissToast(page)
+  await importPhotos(page, ['e2e-c.jpg', 'e2e-d.jpg', 'e2e-a.jpg'])
+
+  const last = page.locator('.nav-item', { hasText: 'Last import' })
+  await expect(last.locator('.nav-count')).toHaveText('2')
+  await last.click()
+  await expect(names(page)).toHaveText(['e2e-c.jpg', 'e2e-d.jpg'])
+
+  await cell(page, 'e2e-c.jpg').click()
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Keepers')
+  await page.keyboard.press('Enter')
+
+  const clear = 'Trash photos not in an album'
+  await page.getByRole('button', { name: clear }).click()
+  const dialog = page.locator('.dialog')
+  await expect(dialog).toContainText('1 photo')
+  await dialog.getByRole('button', { name: 'Move to Trash' }).click()
+  await expect(names(page)).toHaveText(['e2e-c.jpg'])
+  const trash = page.locator('.nav-item', { hasText: 'Trash' })
+  await expect(trash.locator('.nav-count')).toHaveText('1')
+})
+
+test('lists the photos of every album on one page', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  for (const [name, photos] of [
+    ['Rome', ['e2e-a.jpg', 'e2e-b.jpg']],
+    ['Atlantic', ['e2e-b.jpg', 'e2e-c.jpg']]
+  ] as const) {
+    await page.locator('.nav-item', { hasText: 'All photos' }).click()
+    await cell(page, photos[0]).click()
+    await cell(page, photos[1]).click({ modifiers: ['Control'] })
+    await page.keyboard.press('g')
+    await page.locator('[data-input="picker"]').fill(name)
+    await page.keyboard.press('Enter')
+  }
+
+  await page.locator('.nav-item', { hasText: 'In albums' }).click()
+  await expect(page.locator('.grid-header')).toHaveText([
+    /Atlantic\s*2/, /Rome\s*2/
+  ])
+  await expect(names(page)).toHaveText([
+    'e2e-b.jpg', 'e2e-c.jpg', 'e2e-a.jpg', 'e2e-b.jpg'
+  ])
+
+  await page.locator('.grid-header', { hasText: 'Rome' }).click()
+  await expect(page.locator('.toolbar-heading')).toHaveText('Rome')
+})
+
+// Size and first pixel of a video, read with ffprobe and ffmpeg.
+function inspectVideo(bytes: Uint8Array) {
+  const file = join(mkdtempSync(join(tmpdir(), 'lightbox-')), 'v.mp4')
+  writeFileSync(file, bytes)
+  const probe = execFileSync('ffprobe', [
+    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+    'stream=width,height', '-of', 'csv=p=0', file
+  ]).toString().trim()
+  const pixel = execFileSync('ffmpeg', [
+    '-v', 'error', '-i', file, '-frames:v', '1', '-vf',
+    'scale=in_color_matrix=bt709:in_range=tv,format=rgb24',
+    '-f', 'rawvideo', '-'
+  ])
+  return { size: probe, pixel: [...pixel.subarray(0, 3)] }
+}
+
+test('imports, plays, grades and exports videos', async ({ page }) => {
+  const videos = ['clip.mp4', 'VID_20240108_093000.mp4', 'flat.mp4']
+  await openLibrary(page)
+  await importPhotos(page, [...videos, 'e2e-a.jpg', 'broken.mp4'])
+  await expect(page.locator('.toast')).toContainText('Imported 4')
+  await expect(page.locator('.toast')).
+    toContainText('1 video could not be played in this browser')
+  await expect(page.locator('.cell-video')).toHaveCount(3)
+  await expect(cell(page, 'clip.mp4').locator('.cell-video')).
+    toContainText('0:02')
+
+  // The phone clip, stored sideways, shows upright.
+  const phone = cell(page, 'VID_20240108_093000.mp4').locator('img')
+  await expect(phone).toHaveJSProperty('complete', true)
+  const shape = await phone.evaluate((img: HTMLImageElement) =>
+    img.naturalWidth / img.naturalHeight)
+  expect(shape).toBeLessThan(1)
+
+  // Space plays a video; Space again closes it.
+  await cell(page, 'clip.mp4').click()
+  await page.keyboard.press(' ')
+  const play = page.locator('.transport [data-action="play"] i')
+  await expect(play).toHaveClass('icon-pause')
+  await page.keyboard.press(' ')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
+
+  // Grade the flat clip, then export all three videos as an album.
+  await cell(page, 'flat.mp4').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await page.locator('input[data-key="exposure"]').fill('1')
+  await page.keyboard.press('Escape')
+  await cell(page, videos[0]).click()
+  for (const name of videos.slice(1)) {
+    await cell(page, name).click({ modifiers: ['Control'] })
+  }
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Trip')
+  await page.keyboard.press('Enter')
+  await page.locator('.nav-item', { hasText: 'Trip' }).click()
+
+  await exportAlbum(page, async () => {
+    await expect(page.locator('[data-field="videoSide"]')).toHaveValue('720')
+  })
+  await expect(page.locator('.toast')).toContainText('Exported 3 files')
+
+  const folder = ['library', 'Exports', 'Trip']
+  const files = await listFiles(page, folder)
+  expect(files).toEqual(['Trip-001.mp4', 'Trip-002.mp4', 'Trip-003.mp4'])
+  const results = []
+  for (const name of files) {
+    results.push(inspectVideo(await readFile(page, [...folder, name])))
+  }
+  expect(results.map(r => r.size).sort()).
+    toEqual(['240,320', '320,240', '64,48'])
+
+  // The graded clip comes out with the preview's colour maths.
+  const flat = results.find(r => r.size === '64,48')!
+  const edit = { ...colourOf(NEUTRAL_EDIT), exposure: 1 }
+  const decoded: RGB = [149 / 255, 118 / 255, 96 / 255]
+  const expected = develop(decoded, colourParams(edit)).map(v => v * 255)
+  flat.pixel.forEach((v, i) => {
+    expect(Math.abs(v - expected[i])).toBeLessThan(6)
+  })
+})
+
+test('corrects the capture time of a group', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+
+  // a and b were taken a day apart by a camera with a wrong clock.
+  await cell(page, 'e2e-b.jpg').click()
+  await cell(page, 'e2e-a.jpg').click({ modifiers: ['Control'] })
+  await page.getByRole('button', { name: 'Adjust date' }).click()
+  const dialog = page.locator('.dialog')
+  await expect(dialog).toContainText('e2e-a.jpg')
+  await dialog.locator('input[type="datetime-local"]').
+    fill('2026-05-31T15:31')
+  await expect(dialog).toContainText('+881 days 5 h 31 min')
+  await dialog.getByRole('button', { name: 'Apply' }).click()
+
+  // Sorted by date, both now come after c, still a day apart.
+  const order = ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg']
+  await expect(names(page)).toHaveText(['e2e-c.jpg', 'e2e-a.jpg', 'e2e-b.jpg'])
+  await page.keyboard.press('Control+z')
+  await expect(names(page)).toHaveText(order)
+  await page.keyboard.press('Control+Shift+z')
+
+  // Exports carry the corrected time.
+  await cell(page, 'e2e-b.jpg').click()
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Fixed')
+  await page.keyboard.press('Enter')
+  await page.locator('.nav-item', { hasText: 'Fixed' }).click()
+  await exportAlbum(page, async () => {})
+  const file = ['library', 'Exports', 'Fixed', 'Fixed-001.jpg']
+  const bytes = await readFile(page, file)
+  expect(exifTags(bytes).get('exif.0x9003')).toBe('2026:06:01 15:31:00')
+})
+
+test('dates photos that had none, keeping their order', async ({ page }) => {
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'plain.jpg', 'zero-date.jpg'])
+  await expect(names(page)).
+    toHaveText(['e2e-a.jpg', 'plain.jpg', 'zero-date.jpg'])
+
+  await cell(page, 'plain.jpg').click()
+  await cell(page, 'zero-date.jpg').click({ modifiers: ['Shift'] })
+  await page.getByRole('button', { name: 'Adjust date' }).click()
+  const dialog = page.locator('.dialog')
+  // The time entered is the first selected one's; the rest count
+  // forward from it.
+  await expect(dialog).toContainText('plain.jpg has no date')
+  await dialog.locator('input[type="datetime-local"]').
+    fill('2023-12-31T23:59')
+  await expect(dialog).toContainText('1 more follows one second apart')
+  await dialog.getByRole('button', { name: 'Apply' }).click()
+
+  // Both now come before e2e-a, still in their order.
+  await expect(names(page)).
+    toHaveText(['plain.jpg', 'zero-date.jpg', 'e2e-a.jpg'])
+
+  // The photo without any EXIF gets the date written on export.
+  await cell(page, 'plain.jpg').click()
+  await page.keyboard.press('g')
+  await page.locator('[data-input="picker"]').fill('Dated')
+  await page.keyboard.press('Enter')
+  await page.locator('.nav-item', { hasText: 'Dated' }).click()
+  await exportAlbum(page, async () => {})
+  const file = ['library', 'Exports', 'Dated', 'Dated-001.jpg']
+  const bytes = await readFile(page, file)
+  expect(exifTags(bytes).get('exif.0x9003')).toBe('2023:12:31 23:59:00')
+})

@@ -1,0 +1,306 @@
+.library {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex: none;
+  container-type: inline-size;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--toolbar-height);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 140px;
+}
+
+// Narrow toolbars keep the icons (with tooltips) and drop the labels.
+@container (max-width: 920px) {
+  .toolbar .button-label {
+    display: none;
+  }
+}
+
+.toolbar-heading {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.selection-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+
+.selection-count {
+  margin-right: var(--space-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+// ─── Grid ────────────────────────────────────────────────────────────
+
+.grid {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  user-select: none;
+}
+
+.grid-inner {
+  position: relative;
+  height: var(--total);
+}
+
+.grid-row {
+  position: absolute;
+  top: var(--y);
+  right: var(--pad);
+  left: var(--pad);
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: var(--gap);
+}
+
+.grid-header {
+  position: absolute;
+  top: var(--y);
+  left: var(--pad);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: var(--header);
+  padding: var(--space-2) 0 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: var(--font-lg);
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--accent);
+  }
+}
+
+.cell {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  background: var(--surface);
+
+  &.selected {
+    outline-color: var(--accent);
+    background: var(--surface-raised);
+  }
+
+  &.current:not(.selected) {
+    outline-color: var(--text-faint);
+  }
+}
+
+.cell-image,
+.cell-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.cell-check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--shade);
+  color: var(--text);
+  font-size: var(--font-lg);
+  cursor: pointer;
+  opacity: 0;
+
+  .cell:hover &,
+  .cell.selected & {
+    opacity: 1;
+  }
+
+  .cell.selected & {
+    color: var(--accent);
+  }
+}
+
+.cell-marks {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.cell-video {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  background: var(--shade);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.cell-badge,
+.cell-star {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius);
+  background: var(--shade);
+  font-size: var(--font-sm);
+}
+
+.cell-badge {
+  display: none;
+  pointer-events: none;
+
+  .cell.edited & {
+    display: grid;
+  }
+}
+
+.cell-star {
+  padding: 0;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+
+  .cell:hover & {
+    opacity: 1;
+  }
+
+  .cell.starred & {
+    background: var(--star);
+    color: var(--star-text);
+    opacity: 1;
+  }
+}
+
+.cell-name {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px var(--space-2) 6px;
+  background: linear-gradient(transparent, var(--shade));
+  font-size: var(--font-xs);
+  opacity: 0;
+  pointer-events: none;
+
+  .cell:hover & {
+    opacity: 1;
+  }
+}
+
+.cell-detail {
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+.cell-detail,
+.cell-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-detail + .cell-file {
+  color: var(--text-muted);
+}
+
+.marquee {
+  position: absolute;
+  top: var(--y);
+  left: var(--x);
+  width: var(--w);
+  height: var(--h);
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+.drop-marker {
+  position: absolute;
+  top: var(--y);
+  left: calc(var(--x) - 2px);
+  width: 4px;
+  height: var(--h);
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.grid-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-5);
+  color: var(--text-muted);
+  text-align: center;
+
+  > i {
+    font-size: var(--font-xxl);
+  }
+
+  p {
+    max-width: 420px;
+    margin: 0;
+  }
+}
+
+.grid-empty-actions {
+  display: flex;
+  gap: var(--space-2);
+}

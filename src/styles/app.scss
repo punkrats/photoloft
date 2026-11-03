@@ -1,0 +1,125 @@
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+
+  &:not([data-mode='grid']) {
+    grid-template-columns: minmax(0, 1fr) var(--panel-width);
+
+    .sidebar,
+    .library {
+      display: none;
+    }
+  }
+
+  &[data-mode='preview'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  &[data-mode='grid'] .editor {
+    display: none;
+  }
+}
+
+.main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar-gap {
+  flex: 1;
+}
+
+.toolbar-count {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+
+.progress {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+
+.progress-label {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.progress-bar {
+  position: relative;
+  width: 220px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: scaleX(var(--progress));
+    transform-origin: left;
+  }
+}
+
+.toast {
+  position: fixed;
+  bottom: 76px;
+  left: 50%;
+  z-index: 30;
+  max-width: min(680px, 90vw);
+  padding: 10px var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+.crash {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 50;
+  max-width: min(680px, 90vw);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--danger);
+  transform: translateX(-50%);
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: var(--space-3);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: 3px dashed var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  font-size: var(--font-xl);
+  pointer-events: none;
+}
