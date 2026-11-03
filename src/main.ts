@@ -342,6 +342,10 @@ function gridKey(state: AppState, key: string) {
     clicks.star(state, {}, new Event('key'))
     return true
   }
+  if (key === 'i' && state.selection.size) {
+    clicks['open-info'](state, {}, new Event('key'))
+    return true
+  }
   return false
 }
 

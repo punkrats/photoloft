@@ -1,3 +1,7 @@
+// Field labels share one column; notes and the map line up after it.
+$label-width: 120px;
+$indent: calc(#{$label-width} + var(--space-2));
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;
@@ -93,7 +97,7 @@
 
 .form-label {
   flex: none;
-  width: 120px;
+  width: $label-width;
   color: var(--text-muted);
 }
 
@@ -105,7 +109,7 @@
 
 .form-note {
   margin: 0;
-  padding-left: 128px;
+  padding-left: $indent;
   color: var(--text-muted);
   font-size: var(--font-sm);
 }
@@ -119,6 +123,45 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+// ─── Info ────────────────────────────────────────────────────────────
+
+.form-indent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: $indent;
+}
+
+.form-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.place-search {
+  display: flex;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+
+  .input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.place-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-at {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 // ─── Shortcuts ───────────────────────────────────────────────────────

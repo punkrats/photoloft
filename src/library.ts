@@ -1,3 +1,5 @@
+import { isLocation } from './geo'
+import type { Meta } from './meta'
 import { NEUTRAL_EDIT, type Edit } from './schema'
 import { realTaken, shiftedTaken, takenDifference } from './taken'
 
@@ -13,6 +15,7 @@ export type Photo = {
   starred: boolean
   bytes: number
   video: VideoInfo | null
+  meta: Meta
 }
 
 export type VideoInfo = { duration: number, ext: VideoExt }
@@ -31,6 +34,17 @@ export type Album = {
 
 export type ExportRecord = { folder: string, files: string[] }
 
+// The author and copyright last set, offered for photos without one.
+export type MetaDefaults = Pick<Meta, 'author' | 'copyright'>
+
+// Per field: `{ set }` gives every photo the value, 'remove' deletes
+// it, a missing key keeps each photo's own. A location set to null
+// means no location at all, the camera's included.
+export type FieldChange<T> = { set: T } | 'remove'
+export type MetaChange = {
+  [K in keyof Meta]?: FieldChange<Exclude<Meta[K], undefined>>
+}
+
 export type ExportSettings = {
   naming: 'album' | 'original'
   longEdge: number | null
@@ -47,6 +61,7 @@ export type Library = {
   exports: Record<string, ExportRecord>
   exportSettings: ExportSettings
   lastImport: string[]
+  metaDefaults: MetaDefaults
 }
 
 export type View =
@@ -62,6 +77,7 @@ export type Sort = 'date' | 'name' | 'size'
 export type AlbumSort = Sort | 'custom'
 
 const SORTS: AlbumSort[] = ['date', 'name', 'size', 'custom']
+const META_TEXT = ['title', 'description', 'author', 'copyright'] as const
 
 const VERSION = 1
 const COLLATOR = new Intl.Collator(undefined, {
@@ -84,7 +100,8 @@ export function emptyLibrary(): Library {
     albums: [],
     exports: {},
     exportSettings: DEFAULT_EXPORT,
-    lastImport: []
+    lastImport: [],
+    metaDefaults: {}
   }
 }
 
@@ -165,6 +182,56 @@ export function retime(
     return [{ ...photo, takenAt: shiftedTaken(photo.takenAt, gap) }]
   })
   return withPhotos(lib, photos)
+}
+
+// Applies the change to each photo; only photos that end up different
+// are copied, so a change that alters nothing returns `lib` itself. The
+// author and copyright it sets are remembered.
+export function setMeta(lib: Library, ids: string[], change: MetaChange) {
+  const photos = ids
+    .map(id => lib.photos[id])
+    .filter(Boolean)
+    .flatMap(p => {
+      const meta = changedMeta(p.meta, change)
+      return sameMeta(meta, p.meta) ? [] : [{ ...p, meta }]
+    })
+  if (!photos.length) return lib
+
+  const metaDefaults = { ...lib.metaDefaults }
+  for (const key of ['author', 'copyright'] as const) {
+    const field = change[key]
+    const value = field && field !== 'remove' ? field.set.trim() : ''
+    if (value) metaDefaults[key] = value
+  }
+  return { ...withPhotos(lib, photos), metaDefaults }
+}
+
+function changedMeta(meta: Meta, change: MetaChange): Meta {
+  const next: Record<string, unknown> = { ...meta }
+  for (const [key, field] of Object.entries(change)) {
+    const value = field === 'remove' ? undefined : cleanMeta(field.set)
+    if (value === undefined) delete next[key]
+    else next[key] = value
+  }
+  return next as Meta
+}
+
+// Text is trimmed and keywords dropped when blank or repeated; what is
+// left empty counts as no value.
+function cleanMeta(value: Exclude<Meta[keyof Meta], undefined>) {
+  if (typeof value === 'string') return value.trim() || undefined
+  if (!Array.isArray(value)) return value
+
+  const words = [...new Set(value.map(w => w.trim()).filter(Boolean))]
+  return words.length ? words : undefined
+}
+
+function sameMeta(a: Meta, b: Meta) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  return [...keys].every(key => {
+    const k = key as keyof Meta
+    return JSON.stringify(a[k]) === JSON.stringify(b[k])
+  })
 }
 
 export function trashPhotos(lib: Library, ids: string[], now: string) {
@@ -446,8 +513,18 @@ export function migrate(raw: unknown): Library {
   const lastImport = list(data.lastImport)
     .filter(isString)
     .filter(id => photos[id])
+  const defaults = migrateMeta(record(data.metaDefaults))
+  const metaDefaults: MetaDefaults = {}
+  if (defaults.author) metaDefaults.author = defaults.author
+  if (defaults.copyright) metaDefaults.copyright = defaults.copyright
   return {
-    version: VERSION, photos, albums, exports, exportSettings, lastImport
+    version: VERSION,
+    photos,
+    albums,
+    exports,
+    exportSettings,
+    lastImport,
+    metaDefaults
   }
 }
 
@@ -465,8 +542,27 @@ function migratePhoto(raw: Raw): Photo | null {
     trashedAt: isString(raw.trashedAt) ? raw.trashedAt : null,
     starred: raw.starred === true || raw.flagged === true,
     bytes: num(raw.bytes, 0),
-    video: migrateVideo(record(raw.video))
+    video: migrateVideo(record(raw.video)),
+    meta: migrateMeta(record(raw.meta))
   }
+}
+
+// Keeps what has the right shape; empty text and keywords count as
+// none.
+function migrateMeta(raw: Raw): Meta {
+  const meta: Meta = {}
+  for (const key of META_TEXT) {
+    const value = raw[key]
+    if (isString(value) && value) meta[key] = value
+  }
+
+  const keywords = list(raw.keywords).filter(isString).filter(Boolean)
+  if (keywords.length) meta.keywords = keywords
+  if (raw.location === null) meta.location = null
+  if (isLocation(raw.location)) {
+    meta.location = { lat: raw.location.lat, lon: raw.location.lon }
+  }
+  return meta
 }
 
 function migrateVideo(raw: Raw): VideoInfo | null {

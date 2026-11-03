@@ -1,6 +1,7 @@
 import { bboxRegion, effectiveCrop, orientedSize } from './geometry'
-import type { Photo } from './library'
+import type { ExportSettings, Photo } from './library'
 import { cubeLut } from './lut'
+import type { Meta } from './meta'
 import { colourOf } from './schema'
 
 export type VideoSettings = {
@@ -11,16 +12,18 @@ export type VideoSettings = {
   shortSide: 0 | 720 | 1080
   crf: number
   creationTime: string | null
+  stripGps: boolean
+  meta: Meta
 }
+
+type Choices = Pick<ExportSettings, 'videoSide' | 'stripGps'>
 
 const POLL_MS = 400
 
 // What the server needs to export a video: quarter turns, flip and
-// straighten as set, and the crop as fractions of the straightened
-// frame, which is what ffmpeg sees after rotating.
-export function videoSettings(
-  photo: Photo, shortSide: VideoSettings['shortSide']
-): VideoSettings {
+// straighten as set, the crop as fractions of the straightened frame,
+// which is what ffmpeg sees after rotating, and the info to write.
+export function videoSettings(photo: Photo, choices: Choices): VideoSettings {
   const edit = photo.edit
   const source = { w: photo.width, h: photo.height }
   const size = orientedSize(source.w, source.h, edit.rotate)
@@ -40,24 +43,34 @@ export function videoSettings(
       w: Math.min(1 - x, fraction(crop.w / box.w)),
       h: Math.min(1 - y, fraction(crop.h / box.h))
     },
-    shortSide,
+    shortSide: choices.videoSide,
     crf: 20,
-    creationTime: photo.takenAt ? new Date(photo.takenAt).toISOString() : null
+    creationTime: photo.takenAt ? new Date(photo.takenAt).toISOString() : null,
+    stripGps: choices.stripGps,
+    meta: photo.meta
   }
+}
+
+// HTTP header values only carry Latin-1, so everything outside ASCII
+// travels as JSON escapes.
+export function settingsHeader(settings: VideoSettings) {
+  return JSON.stringify(settings).replace(/[^\x00-\x7f]/g, c => {
+    return `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`
+  })
 }
 
 // Uploads the original to the local server, which runs ffmpeg with the
 // colour table and settings, and returns the exported MP4.
 export async function exportVideo(
-  photo: Photo, original: Blob, shortSide: VideoSettings['shortSide'],
+  photo: Photo, original: Blob, choices: Choices,
   onProgress: (share: number) => void
 ) {
   const token = await serverToken()
   const lut = cubeLut(colourOf(photo.edit))
-  const settings = videoSettings(photo, shortSide)
+  const settings = videoSettings(photo, choices)
   const headers = {
     'X-Lightbox-Token': token,
-    'X-Lightbox-Settings': JSON.stringify(settings),
+    'X-Lightbox-Settings': settingsHeader(settings),
     'X-Lightbox-Lut-Length': String(lut.length)
   }
   const body = new Blob([lut, original])

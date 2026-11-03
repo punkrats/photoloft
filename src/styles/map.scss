@@ -1,0 +1,61 @@
+@use 'leaflet/dist/leaflet';
+
+// The Info dialog's map: Leaflet's layout, with its controls in the
+// app's colours.
+
+.place-map {
+  height: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font);
+
+  &.leaflet-container {
+    background: var(--stage);
+  }
+
+  .leaflet-bar {
+    border-color: var(--border);
+
+    a,
+    a:hover,
+    a:focus {
+      border-bottom-color: var(--border);
+      background: var(--surface-raised);
+      color: var(--text);
+    }
+
+    a:hover,
+    a:focus {
+      background: var(--surface-hover);
+    }
+
+    a.leaflet-disabled {
+      background: var(--surface);
+      color: var(--text-faint);
+    }
+  }
+
+  .leaflet-control-attribution {
+    &,
+    &.leaflet-control {
+      background: var(--shade);
+      color: var(--text-muted);
+    }
+
+    a {
+      color: var(--text);
+    }
+  }
+}
+
+// Leaflet places the pin's box at the point; the glyph hangs above it
+// with its tip on the point.
+.map-pin i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--accent);
+  font-size: var(--font-xxl);
+  text-shadow: 0 1px 3px var(--shade);
+  transform: translate(-50%, -92%);
+}

@@ -11,20 +11,23 @@ import { importEntries } from './importer'
 import {
   addToAlbum, createAlbum, deleteAlbum, emptyTrash, removeFromAlbum,
   notInAlbums, renameAlbum, renamePhoto, restorePhotos, setAlbumSort,
-  retime, setPhotoSizes, toggleStars, trashPhotos, type AlbumSort
+  retime, setMeta, setPhotoSizes, toggleStars, trashPhotos, type AlbumSort
 } from './library'
+import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
 import type { Aspect, SliderKey } from './schema'
 import {
-  currentAlbum, endCoalescing, showToast, viewIds, type AppState,
-  type ExportForm
+  currentAlbum, endCoalescing, infoForm, showToast, viewIds, type AppState,
+  type ExportForm, type InfoField
 } from './state'
 import {
   chooseImportFolder, chooseLibrary, deletePhotoFiles, grantAccess,
   openLibrary, readOriginal, rememberLibrary
 } from './storage'
 import { localIso } from './mp4'
-import { dateChange, pickerOptions } from './ui/dialogs'
+import {
+  dateChange, infoChange, newInfoForm, pickerOptions
+} from './ui/dialogs'
 
 type Data = DOMStringMap
 type Handler = (state: AppState, data: Data, event: Event) => void
@@ -225,6 +228,32 @@ function applyDate(state: AppState) {
   showToast(state, 'Updated the capture times. Ctrl+Z undoes it.')
 }
 
+function openInfoDialog(state: AppState) {
+  const ids = targets(state)
+  if (!ids.length || state.view.kind === 'trash') return
+
+  const lib = state.library!
+  const form = newInfoForm(lib, ids)
+  ensureMap(state)
+  state.dialog = { kind: 'info', form }
+  if (lib.photos[ids[0]].meta.location === undefined) {
+    void showCameraLocation(state, form)
+  }
+}
+
+function applyInfo(state: AppState) {
+  const form = infoForm(state)
+  if (!form || !state.library) return
+
+  const { change, changes } = infoChange(state.library, form)
+  if (!changes) return
+
+  state.dialog = null
+  commit(state, setMeta(state.library, form.ids, change))
+  const count = `${form.ids.length} ${plural(form.ids.length)}`
+  showToast(state, `Updated the info of ${count}. Ctrl+Z undoes it.`)
+}
+
 function trashUnalbumed(state: AppState) {
   const lib = state.library!
   const ids = notInAlbums(lib, viewIds(state))
@@ -356,6 +385,16 @@ export const clicks: Record<string, Handler> = {
   'auto-selection': state => void autoSelection(state),
   'open-date': state => openDateDialog(state),
   'apply-date': state => applyDate(state),
+  'open-info': state => openInfoDialog(state),
+  'apply-info': state => applyInfo(state),
+  'info-search': state => void searchPlace(state),
+  'info-place': (state, data) => pickPlace(state, Number(data.index)),
+  'info-remove-location': state => {
+    const form = infoForm(state)
+    if (!form) return
+    form.pin = null
+    form.moved = true
+  },
   star: state => {
     const ids = targets(state)
     if (ids.length) commit(state, toggleStars(state.library!, ids))
@@ -458,6 +497,16 @@ export function input(state: AppState, el: HTMLInputElement) {
     state.dialog = { ...state.dialog, value: el.value }
     render(state)
   }
+  if (kind === 'info-text' || kind === 'info-query') infoInput(state, el)
+}
+
+function infoInput(state: AppState, el: HTMLInputElement) {
+  const form = infoForm(state)
+  if (!form) return
+
+  if (el.dataset.input === 'info-query') form.query = el.value
+  else form.text[el.dataset.field as InfoField] = el.value
+  render(state)
 }
 
 export function change(state: AppState, el: HTMLInputElement) {

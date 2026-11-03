@@ -231,6 +231,10 @@ function selectionBar(state: AppState, album: Album | null) {
         <button class="button" data-action="open-date">
           <i class="icon-calendar-clock"></i> Adjust date
         </button>
+        <button class="button" data-action="open-info">
+          <i class="icon-info"></i> Info
+          <kbd>I</kbd>
+        </button>
         <button
           class="button"
           data-action="paste-settings"

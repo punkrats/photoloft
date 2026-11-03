@@ -1,10 +1,16 @@
 import { html, nothing } from 'lit-html'
 import { classMap } from 'lit-html/directives/class-map.js'
 import { live } from 'lit-html/directives/live.js'
-import { albumsByName, retime, viewPhotos, type Library } from '../library'
 import { formatShift, formatTaken } from '../format'
+import { closeView, formatLocation, WORLD_VIEW } from '../geo'
+import {
+  albumsByName, retime, setMeta, viewPhotos, type Library, type MetaChange
+} from '../library'
+import type { Meta } from '../meta'
 import { albumFileNames, sanitizeName } from '../naming'
-import type { AppState, Dialog, ExportForm } from '../state'
+import type {
+  AppState, Dialog, ExportForm, InfoField, InfoForm
+} from '../state'
 import { realTaken, takenDifference } from '../taken'
 
 export const SIZES: [string, string][] = [
@@ -38,6 +44,7 @@ const SHORTCUTS: [string, string][] = [
   ['Ctrl+A, Esc', 'Select all, clear selection'],
   ['G', 'Add selection to an album'],
   ['S', 'Star or unstar photos to keep'],
+  ['I', 'Info: title, keywords, author, location'],
   ['Delete', 'Remove from album, or move to trash'],
   ['Space', 'Show the photo large; Space again closes'],
   ['Enter or double-click', 'Edit photo'],
@@ -66,6 +73,7 @@ function body(state: AppState, lib: Library, d: Dialog) {
   if (d.kind === 'export') return exportForm(lib, d.form)
   if (d.kind === 'help') return help()
   if (d.kind === 'date') return dateForm(lib, d)
+  if (d.kind === 'info') return info(state, lib, d.form)
 
   return html`
     <h3 class="dialog-title">${d.message}</h3>
@@ -202,7 +210,7 @@ function exportForm(lib: Library, form: ExportForm) {
             data-change="export-field"
             data-field="stripGps"
           >
-          Remove GPS location
+          Remove camera locations
         </span>
       </label>
       ${hasVideos(lib, albums.map(a => a.id))
@@ -378,6 +386,189 @@ function dateNotes(c: ReturnType<typeof dateChange>) {
     notes.push(`Earliest ${first}, latest ${last}.`)
   }
   return notes
+}
+
+// ─── Info ────────────────────────────────────────────────────────────
+
+const INFO_FIELDS: [InfoField, string][] = [
+  ['title', 'Title'],
+  ['description', 'Description'],
+  ['keywords', 'Keywords'],
+  ['author', 'Author'],
+  ['copyright', 'Copyright']
+]
+
+// Each field as the dialog shows it: the text all the photos share
+// (empty when none has a value), or null when they differ.
+export function sharedText(lib: Library, ids: string[]) {
+  const metas = ids.map(id => lib.photos[id]?.meta).filter(Boolean)
+  const shared = {} as Record<InfoField, string | null>
+  for (const [field] of INFO_FIELDS) {
+    const values = new Set(metas.map(meta => metaText(meta, field)))
+    shared[field] = values.size === 1 ? [...values][0] : null
+  }
+  return shared
+}
+
+function metaText(meta: Meta, field: InfoField) {
+  if (field === 'keywords') return (meta.keywords ?? []).join(', ')
+  return meta[field] ?? ''
+}
+
+// Fields start with the shared text; author and copyright fall back to
+// the last ones set when no photo has one. The map starts at the first
+// photo's added location; the camera's is looked up after opening.
+export function newInfoForm(lib: Library, ids: string[]): InfoForm {
+  const shared = sharedText(lib, ids)
+  const text = {} as Record<InfoField, string>
+  for (const [field] of INFO_FIELDS) text[field] = shared[field] ?? ''
+  for (const field of ['author', 'copyright'] as const) {
+    if (shared[field] === '') text[field] = lib.metaDefaults[field] ?? ''
+  }
+
+  const added = lib.photos[ids[0]]?.meta.location ?? null
+  return {
+    ids,
+    text,
+    pin: added,
+    moved: false,
+    view: added ? closeView(added) : WORLD_VIEW,
+    query: '',
+    places: [],
+    note: null,
+    searches: 0
+  }
+}
+
+// What applying the dialog would do. A field showing several values
+// keeps them while left empty, one showing the shared value keeps it
+// while unchanged; anything else replaces, and emptied removes. The
+// location changes only when the user placed or removed the pin.
+export function infoChange(lib: Library, form: InfoForm) {
+  const shared = sharedText(lib, form.ids)
+  const change: MetaChange = {}
+  for (const [field] of INFO_FIELDS) {
+    const typed = form.text[field]
+    const several = shared[field] === null
+    if (several ? !typed.trim() : typed === shared[field]) continue
+
+    if (field === 'keywords') change.keywords = { set: typed.split(',') }
+    else change[field] = { set: typed }
+  }
+  if (form.moved) change.location = { set: form.pin }
+
+  const changes = setMeta(lib, form.ids, change) !== lib
+  return { shared, change, changes }
+}
+
+function info(state: AppState, lib: Library, form: InfoForm) {
+  const c = infoChange(lib, form)
+  const n = form.ids.length
+  const count = `${n} ${n === 1 ? 'photo' : 'photos'}`
+
+  return html`
+    <h3 class="dialog-title">Info for ${count}</h3>
+    <div class="form">
+      ${INFO_FIELDS.map(([field, label]) => html`
+        <label class="form-row">
+          <span class="form-label">${label}</span>
+          <input
+            class="input"
+            placeholder=${c.shared[field] === null ? 'Several values' : ''}
+            .value=${live(form.text[field])}
+            data-input="info-text"
+            data-field=${field}
+            ?data-autofocus=${field === 'title'}
+          >
+        </label>
+        ${field === 'keywords'
+          ? html`<p class="form-note">Separate keywords with commas</p>`
+          : nothing}
+      `)}
+      ${location(state, form)}
+    </div>
+    <div class="dialog-buttons">
+      <button class="button" data-action="close-dialog">Cancel</button>
+      <button
+        class="button primary"
+        data-action="apply-info"
+        ?disabled=${!c.changes}
+      >
+        Apply to ${count}
+      </button>
+    </div>
+  `
+}
+
+// Enter in the search field submits its form, which clicks the search
+// button.
+function location(state: AppState, form: InfoForm) {
+  return html`
+    <div class="form-row">
+      <span class="form-label">Location</span>
+      <form class="place-search">
+        <input
+          class="input"
+          placeholder="Search a place or paste coordinates"
+          .value=${live(form.query)}
+          data-input="info-query"
+        >
+        <button
+          class="icon-button"
+          type="submit"
+          data-action="info-search"
+          title="Search"
+        >
+          <i class="icon-search"></i>
+        </button>
+      </form>
+    </div>
+    <div class="form-indent">
+      ${form.places.length ? places(form) : nothing}
+      ${form.note ? html`<p class="form-hint">${form.note}</p>` : nothing}
+      ${state.map?.element ?? nothing}
+      ${state.map?.failed
+        ? html`
+          <p class="form-hint">
+            The map could not load. Pasted coordinates still work.
+          </p>
+        `
+        : nothing}
+      ${pin(form)}
+    </div>
+  `
+}
+
+function places(form: InfoForm) {
+  return html`
+    <div class="picker-list">
+      ${form.places.map((place, i) => html`
+        <button class="picker-item" data-action="info-place" data-index=${i}>
+          <i class="icon-map-pin"></i>
+          <span class="place-name">${place.name}</span>
+        </button>
+      `)}
+    </div>
+  `
+}
+
+function pin(form: InfoForm) {
+  if (!form.pin) {
+    return html`
+      ${form.moved ? html`<p class="place-at">No location</p>` : nothing}
+      <p class="form-hint">Click the map to place a pin</p>
+    `
+  }
+
+  return html`
+    <p class="place-at">${formatLocation(form.pin)}</p>
+    <p class="form-hint">Click the map to move the pin</p>
+    <div>
+      <button class="button" data-action="info-remove-location">
+        <i class="icon-map-pin-off"></i> Remove location
+      </button>
+    </div>
+  `
 }
 
 // ─── Help ────────────────────────────────────────────────────────────

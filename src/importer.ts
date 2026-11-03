@@ -146,7 +146,8 @@ function newItem(
     trashedAt: null,
     starred: false,
     bytes: file.size,
-    video: null
+    video: null,
+    meta: {}
   }
 }
 

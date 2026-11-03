@@ -3,9 +3,9 @@ import {
   addPhotos, addToAlbum, albumsByName, createAlbum, deleteAlbum,
   emptyLibrary, emptyTrash, libraryCounts, migrate, moveInAlbum, pickLibrary,
   removeFromAlbum, renameAlbum, renamePhoto, restorePhotos,
-  setAlbumExportName, setAlbumSort, setEdits, setLastImport, setPhotoSizes,
-  retime, toggleStars, trashPhotos, viewPhotos, albumSections, notInAlbums,
-  type Library, type Photo
+  setAlbumExportName, setAlbumSort, setEdits, setLastImport, setMeta,
+  setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
+  albumSections, notInAlbums, type Library, type Photo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -22,6 +22,7 @@ function photo(id: string, extra: Partial<Photo> = {}): Photo {
     starred: false,
     bytes: 1000,
     video: null,
+    meta: {},
     ...extra
   }
 }
@@ -284,6 +285,80 @@ describe('retime', () => {
   })
 })
 
+describe('setMeta', () => {
+  const rome = { lat: 41.9, lon: 12.5 }
+  const tagged = () => addPhotos(sample(), [
+    photo('m1', { meta: { title: 'Old', author: 'Ann', location: rome } }),
+    photo('m2', { meta: { title: 'Other', keywords: ['sea'] } })
+  ])
+
+  it('sets, removes and keeps each field on every photo given', () => {
+    const lib = setMeta(tagged(), ['m1', 'm2'], {
+      title: { set: 'Matira' }, keywords: 'remove'
+    })
+    expect(lib.photos.m1.meta).
+      toEqual({ title: 'Matira', author: 'Ann', location: rome })
+    expect(lib.photos.m2.meta).toEqual({ title: 'Matira' })
+  })
+
+  it('tells no location apart from the camera location', () => {
+    let lib = setMeta(tagged(), ['m1'], { location: { set: null } })
+    expect(lib.photos.m1.meta.location).toBeNull()
+    lib = setMeta(lib, ['m1'], { location: 'remove' })
+    expect('location' in lib.photos.m1.meta).toBe(false)
+  })
+
+  it('trims text and removes a field set to nothing', () => {
+    const lib = setMeta(tagged(), ['m1'], {
+      title: { set: '  ' }, description: { set: ' At dusk ' }
+    })
+    expect(lib.photos.m1.meta.title).toBeUndefined()
+    expect(lib.photos.m1.meta.description).toBe('At dusk')
+  })
+
+  it('cleans keywords: trimmed, without blanks or repeats', () => {
+    const keywords = [' beach', '', 'Bora Bora ', 'beach', '  ']
+    const lib = setMeta(tagged(), ['m1'], { keywords: { set: keywords } })
+    expect(lib.photos.m1.meta.keywords).toEqual(['beach', 'Bora Bora'])
+    const none = setMeta(lib, ['m1'], { keywords: { set: [' ', ''] } })
+    expect(none.photos.m1.meta.keywords).toBeUndefined()
+  })
+
+  it('copies only the photos that change', () => {
+    const before = tagged()
+    const lib = setMeta(before, ['m1', 'm2'], { author: { set: 'Ann' } })
+    expect(lib.photos.m1).toBe(before.photos.m1)
+    expect(lib.photos.m2.meta.author).toBe('Ann')
+  })
+
+  it('returns the same library when nothing changes', () => {
+    const before = tagged()
+    expect(setMeta(before, ['m1'], { title: { set: 'Old' } })).toBe(before)
+    expect(setMeta(before, ['m2'], { author: 'remove' })).toBe(before)
+    expect(setMeta(before, ['nope'], { title: { set: 'X' } })).toBe(before)
+  })
+
+  it('remembers the author and copyright it sets', () => {
+    let lib = setMeta(tagged(), ['m2'], {
+      author: { set: ' Ann ' }, copyright: { set: '(c) 2026 Ann' }
+    })
+    expect(lib.metaDefaults).
+      toEqual({ author: 'Ann', copyright: '(c) 2026 Ann' })
+
+    lib = setMeta(lib, ['m1', 'm2'], { author: 'remove' })
+    expect(lib.metaDefaults.author).toBe('Ann')
+  })
+
+  it('never mutates the input library', () => {
+    const before = tagged()
+    const snapshot = JSON.stringify(before)
+    setMeta(before, ['m1', 'm2'], {
+      title: { set: 'New' }, location: { set: null }, author: { set: 'Bo' }
+    })
+    expect(JSON.stringify(before)).toBe(snapshot)
+  })
+})
+
 describe('stars', () => {
   it('stars all when any is unstarred, else clears all', () => {
     let lib = toggleStars(sample(), ['a', 'b'])
@@ -475,6 +550,45 @@ describe('migrate', () => {
       albums: [{ id: 'x', name: 'X', photos: ['a', 'gone'] }]
     }
     expect(migrate(raw).albums[0].photos).toEqual(['a'])
+  })
+
+  it('gives photos without info an empty one', () => {
+    const lib = migrate({ version: 1, photos: { a: { id: 'a' } } })
+    expect(lib.photos.a.meta).toEqual({})
+    expect(lib.metaDefaults).toEqual({})
+  })
+
+  it('keeps valid info and drops what is malformed', () => {
+    const meta = {
+      title: 'Matira',
+      description: 7,
+      keywords: ['beach', 3, ''],
+      author: '',
+      copyright: '(c) Ann',
+      location: { lat: -16.5, lon: 'x' },
+      bogus: true
+    }
+    const raw = { version: 1, photos: { a: { id: 'a', meta } } }
+    expect(migrate(raw).photos.a.meta).
+      toEqual({ title: 'Matira', keywords: ['beach'], copyright: '(c) Ann' })
+  })
+
+  it('keeps a location, and no location as null', () => {
+    const at = { lat: -16.5004, lon: -151.7415 }
+    const raw = {
+      version: 1,
+      photos: {
+        a: { id: 'a', meta: { location: at } },
+        b: { id: 'b', meta: { location: null } },
+        c: { id: 'c', meta: { location: { lat: 95, lon: 0 } } }
+      },
+      metaDefaults: { author: 'Ann', copyright: 4 }
+    }
+    const lib = migrate(raw)
+    expect(lib.photos.a.meta.location).toEqual(at)
+    expect(lib.photos.b.meta.location).toBeNull()
+    expect('location' in lib.photos.c.meta).toBe(false)
+    expect(lib.metaDefaults).toEqual({ author: 'Ann' })
   })
 
   it('rejects data from a newer version', () => {

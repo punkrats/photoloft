@@ -157,7 +157,7 @@ async function exportClip(
   state: AppState, photo: Photo, settings: ExportSettings, progress: Progress
 ) {
   const original = await readOriginal(state.dirs!, photo)
-  const blob = await exportVideo(photo, original, settings.videoSide, share => {
+  const blob = await exportVideo(photo, original, settings, share => {
     progress.label = `Exporting (video ${Math.round(share * 100)} %)`
     render(state)
   })
@@ -202,7 +202,11 @@ async function exportPhoto(
     h: Math.max(1, Math.round(rendered.height * base * scale))
   })
   const exifOptions = {
-    width: 1, height: 1, stripGps: settings.stripGps, takenAt: photo.takenAt
+    width: 1,
+    height: 1,
+    stripGps: settings.stripGps,
+    takenAt: photo.takenAt,
+    meta: photo.meta
   }
   const overhead = exportExif(bytes, exifOptions)?.length ?? 0
 

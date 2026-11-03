@@ -48,6 +48,19 @@ Lightbox keeps imported photos, edits and albums in its hidden
   enter the real time of the first selected photo; selected photos with
   a date move by the same amount, those without one follow it one
   second apart in the order shown. Exports carry the corrected time.
+- Info (selection bar, `I`) sets title, description, keywords, author,
+  copyright and location for the selected photos and videos. A field
+  whose values differ shows "Several values" and keeps each photo's own
+  until you type; emptying a shared value removes it. Author and
+  copyright are remembered for photos that have none. The location is
+  a pin on an OpenStreetMap map: click the map, search a place (Enter
+  asks OpenStreetMap's Nominatim) or paste coordinates such as
+  `-16.5004, -151.7415` or `16°30'01.4"S 151°44'29.4"W`, which work
+  offline. The map and the search are the only parts that go online.
+- Exports carry the info as EXIF and XMP; originals stay untouched.
+  "Remove camera locations" in the export dialog drops the locations
+  cameras recorded; a location added in Lightbox is always written,
+  and Remove location in the Info dialog leaves a photo without any.
 - Videos (MP4, MOV) import, play (Space, K) and take the same colour
   and crop settings as photos. Album exports include them at 720p,
   1080p or original size, made by ffmpeg through the Lightbox service
@@ -73,7 +86,9 @@ icon font after adding an icon to `src/styles/icons.scss`.
 
 - `src/colour.ts` and `src/shaders/develop.frag` hold the same colour
   maths; the browser tests compare their output
-- `src/library.ts` has the pure album, trash and loading logic
+- `src/library.ts` has the pure album, trash, info and loading logic
+- `src/geo.ts` reads pasted coordinates and searches places;
+  `src/map.ts` holds the Info dialog's Leaflet map, one per app
 - `src/storage.ts` reads and writes the library folder; saves alternate
   between two files so an interrupted save never loses the last good
   state

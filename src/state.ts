@@ -1,3 +1,4 @@
+import type { MapView, Place } from './geo'
 import { emptyHistory, recordChange, type History } from './history'
 import { plain, type Section } from './grid-layout'
 import {
@@ -5,6 +6,8 @@ import {
   type View
 } from './library'
 import type { Handle } from './geometry'
+import type { PlaceMap } from './map'
+import type { Location } from './meta'
 import type { Renderer } from './pipeline'
 import type { Colour, Crop } from './schema'
 import type { Dirs } from './storage'
@@ -28,12 +31,32 @@ export type ExportForm = {
   videoSide: string
 }
 
+export type InfoField =
+  'title' | 'description' | 'keywords' | 'author' | 'copyright'
+
+// The Info dialog: the text in each field, the pin and whether the user
+// placed or removed it, where the map looks (a new object moves it),
+// and the place search. `searches` counts searches sent, so only the
+// latest answer shows.
+export type InfoForm = {
+  ids: string[]
+  text: Record<InfoField, string>
+  pin: Location | null
+  moved: boolean
+  view: MapView
+  query: string
+  places: Place[]
+  note: string | null
+  searches: number
+}
+
 export type Dialog =
   | { kind: 'picker', query: string, index: number }
   | { kind: 'export', form: ExportForm }
   | { kind: 'confirm', message: string, confirm: string, action: string }
   | { kind: 'help' }
   | { kind: 'date', ids: string[], reference: string, value: string }
+  | { kind: 'info', form: InfoForm }
 
 export type Progress = {
   label: string
@@ -110,6 +133,7 @@ export type AppState = {
   thumbTimer: number | null
   thumbBusy: boolean
   offscreen: Renderer | null
+  map: PlaceMap | null
   viewCache: { key: unknown[], ids: string[] } | null
   countsCache: { library: Library, counts: Counts } | null
   editor: Editor
@@ -155,6 +179,7 @@ export function initialState(root: HTMLElement): AppState {
     thumbTimer: null,
     thumbBusy: false,
     offscreen: null,
+    map: null,
     viewCache: null,
     countsCache: null,
     editor: {
@@ -222,6 +247,10 @@ export function viewSections(state: AppState): Section[] {
 export function currentPhoto(state: AppState) {
   if (!state.library || !state.current) return null
   return state.library.photos[state.current] ?? null
+}
+
+export function infoForm(state: AppState) {
+  return state.dialog?.kind === 'info' ? state.dialog.form : null
 }
 
 export function currentAlbum(state: AppState) {
