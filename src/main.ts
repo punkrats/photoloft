@@ -1,6 +1,6 @@
 import {
   addSelectionTo, change, clicks, commitRename, doubleClicks, input,
-  pickHighlighted, removeSelection, selectedIds
+  pickHighlighted, removeSelection
 } from './actions'
 import { commit, redoChange, saveNow, undoChange } from './commit'
 import {
@@ -17,8 +17,8 @@ import { moveInAlbum } from './library'
 import { paint } from './paint'
 import { flush, render, RENDERED } from './render'
 import {
-  currentAlbum, currentPhoto, initialState, viewIds, viewSections,
-  type AppState, type Point
+  currentAlbum, currentPhoto, initialState, selectedIds, targets, viewIds,
+  viewSections, type AppState, type Point
 } from './state'
 import { hasAccess, rememberedLibrary } from './storage'
 import { pickerOptions } from './ui/dialogs'
@@ -283,8 +283,7 @@ function shortcut(state: AppState, e: KeyboardEvent) {
     return true
   }
   if (ctrl && e.shiftKey && key === 'v') {
-    const ids = state.mode === 'grid' ? selectedIds(state) : [state.current!]
-    pasteSettings(state, ids)
+    pasteSettings(state, targets(state))
     return true
   }
   if (ctrl) return key === 'a' && state.mode === 'grid' && selectAll(state)
@@ -328,8 +327,8 @@ function gridKey(state: AppState, key: string) {
     openPhoto(state, focused)
     return true
   }
-  if (key === 'g' && state.selection.size && state.view.kind !== 'trash') {
-    state.dialog = { kind: 'picker', query: '', index: 0 }
+  if (key === 'g' && state.selection.size) {
+    clicks['open-picker'](state, {}, new Event('key'))
     return true
   }
   if (key === 'Delete' || key === 'Backspace') {
@@ -351,6 +350,7 @@ function editorKey(state: AppState, key: string) {
   const actions: Record<string, () => void> = {
     ArrowLeft: () => step(state, -1),
     ArrowRight: () => step(state, 1),
+    g: () => clicks['open-picker'](state, {}, new Event('key')),
     r: () => clicks['crop-tool'](state, {}, new Event('key')),
     z: () => clicks['toggle-zoom'](state, {}, new Event('key')),
     s: () => clicks.star(state, {}, new Event('key')),

@@ -84,6 +84,15 @@ function bar(state: AppState, lib: Library, id: string) {
         `}
       <span class="toolbar-count">${position}</span>
       <span class="toolbar-gap"></span>
+      ${state.view.kind === 'trash' ? nothing : html`
+        <button
+          class="icon-button"
+          data-action="open-picker"
+          title="Add to album (G)"
+        >
+          <i class="icon-book-image"></i>
+        </button>
+      `}
       ${toggle(photo.starred, 'star', 'icon-star', 'Star to keep (S)')}
       ${toggle(state.before, 'toggle-before', 'icon-square-split-horizontal',
         'Before and after (\\)')}

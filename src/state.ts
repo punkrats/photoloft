@@ -225,6 +225,18 @@ export function viewIds(state: AppState) {
   return ids
 }
 
+// Selected ids in the order they appear in the view.
+export function selectedIds(state: AppState) {
+  return viewIds(state).filter(id => state.selection.has(id))
+}
+
+// The photos an action applies to: the one shown in the editor, else
+// the selection.
+export function targets(state: AppState) {
+  if (state.mode !== 'grid') return state.current ? [state.current] : []
+  return selectedIds(state)
+}
+
 export function counts(state: AppState, library: Library) {
   if (state.countsCache?.library !== library) {
     state.countsCache = { library, counts: libraryCounts(library) }

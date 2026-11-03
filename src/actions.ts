@@ -17,8 +17,8 @@ import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
 import type { Aspect, SliderKey } from './schema'
 import {
-  currentAlbum, endCoalescing, infoForm, showToast, viewIds, type AppState,
-  type ExportForm, type InfoField
+  currentAlbum, endCoalescing, infoForm, selectedIds, showToast, targets,
+  viewIds, type AppState, type ExportForm, type InfoField
 } from './state'
 import {
   chooseImportFolder, chooseLibrary, deletePhotoFiles, grantAccess,
@@ -125,16 +125,6 @@ function toggle(state: AppState, id: string) {
   state.selection = selection
   state.anchor = id
   state.current = id
-}
-
-// Selected ids in the order they appear in the view.
-export function selectedIds(state: AppState) {
-  return viewIds(state).filter(id => state.selection.has(id))
-}
-
-function targets(state: AppState) {
-  if (state.mode !== 'grid') return state.current ? [state.current] : []
-  return selectedIds(state)
 }
 
 // ─── Albums ──────────────────────────────────────────────────────────
@@ -377,7 +367,7 @@ export const clicks: Record<string, Handler> = {
     state.selection = new Set()
   },
   'open-picker': state => {
-    if (!targets(state).length) return
+    if (!targets(state).length || state.view.kind === 'trash') return
     state.dialog = { kind: 'picker', query: '', index: 0 }
   },
   'pick-album': (state, data) => addSelectionTo(state, data.id!),

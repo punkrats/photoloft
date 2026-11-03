@@ -682,6 +682,50 @@ test('opens the selected photo in the editor with Space', async ({ page }) => {
   await expect(app).toHaveAttribute('data-mode', 'grid')
 })
 
+test('adds the photo shown in the editor to an album', async ({ page }) => {
+  const title = page.locator('.dialog-title')
+  const button = page.locator('.editor-bar [data-action="open-picker"]')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-c.jpg').click({ modifiers: ['Control'] })
+  await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
+  await expect(page.locator('.cell.selected')).toHaveCount(3)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.editor-name')).toHaveText('e2e-b.jpg')
+
+  // G and the header button both offer the photo shown.
+  await page.keyboard.press('g')
+  await expect(title).toHaveText('Add 1 photo to album')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.dialog')).toBeHidden()
+  await button.click()
+  await expect(title).toHaveText('Add 1 photo to album')
+  await page.locator('[data-input="picker"]').fill('Keepers')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.toast')).
+    toContainText('Added 1 photo to Keepers')
+  await expect(page.locator('.app')).toHaveAttribute('data-mode', 'edit')
+
+  await page.keyboard.press('Escape')
+  await page.locator('.nav-item', { hasText: 'Keepers' }).click()
+  await expect(names(page)).toHaveText(['e2e-b.jpg'])
+
+  // The trash has no button, and G there opens nothing, so ? still
+  // opens the shortcut list.
+  await page.locator('.nav-item', { hasText: 'All photos' }).click()
+  await cell(page, 'e2e-c.jpg').click()
+  await page.keyboard.press('Delete')
+  await page.locator('.nav-item', { hasText: 'Trash' }).click()
+  await cell(page, 'e2e-c.jpg').dblclick()
+  await expect(page.locator('.editor-name')).toHaveText('e2e-c.jpg')
+  await expect(button).toHaveCount(0)
+  await page.keyboard.press('g')
+  await page.keyboard.press('?')
+  await expect(title).toHaveText('Keyboard shortcuts')
+})
+
 test('clears what the last import put in no album', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])

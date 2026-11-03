@@ -8,8 +8,9 @@ import {
 } from '../library'
 import type { Meta } from '../meta'
 import { albumFileNames, sanitizeName } from '../naming'
-import type {
-  AppState, Dialog, ExportForm, InfoField, InfoForm
+import {
+  targets, type AppState, type Dialog, type ExportForm, type InfoField,
+  type InfoForm
 } from '../state'
 import { realTaken, takenDifference } from '../taken'
 
@@ -42,7 +43,7 @@ const SHORTCUTS: [string, string][] = [
   ['Click / Ctrl+click / Shift+click', 'Select one / toggle / range'],
   ['Drag on empty space', 'Select with a rectangle'],
   ['Ctrl+A, Esc', 'Select all, clear selection'],
-  ['G', 'Add selection to an album'],
+  ['G', 'Add the selection or the open photo to an album'],
   ['S', 'Star or unstar photos to keep'],
   ['I', 'Info: title, keywords, author, location'],
   ['Delete', 'Remove from album, or move to trash'],
@@ -95,7 +96,7 @@ export function pickerOptions(lib: Library, query: string) {
 
 function picker(state: AppState, lib: Library, query: string, index: number) {
   const { albums, create } = pickerOptions(lib, query)
-  const count = state.selection.size
+  const count = targets(state).length
 
   return html`
     <h3 class="dialog-title">
