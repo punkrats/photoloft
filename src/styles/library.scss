@@ -223,6 +223,8 @@
   }
 }
 
+// The scrim fades in above the text and is at full strength behind
+// both lines, so they read on bright photos too.
 .cell-name {
   position: absolute;
   right: 0;
@@ -230,8 +232,8 @@
   left: 0;
   display: flex;
   flex-direction: column;
-  padding: 14px var(--space-2) 6px;
-  background: linear-gradient(transparent, var(--shade));
+  padding: var(--space-5) var(--space-2) 6px;
+  background: linear-gradient(transparent, var(--scrim) var(--space-4));
   font-size: var(--font-xs);
   opacity: 0;
   pointer-events: none;
@@ -254,7 +256,7 @@
 }
 
 .cell-detail + .cell-file {
-  color: var(--text-muted);
+  color: var(--scrim-text-muted);
 }
 
 .marquee {
