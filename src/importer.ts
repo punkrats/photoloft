@@ -5,7 +5,7 @@ import {
   addPhotos, addToAlbum, restorePhotos, setLastImport, type Library,
   type Photo, type VideoExt
 } from './library'
-import { localIso, movieTime, nameTime, readMoov } from './mp4'
+import { readMoov, videoTaken } from './mp4'
 import { render } from './render'
 import { NEUTRAL_EDIT } from './schema'
 import { currentAlbum, showToast, type AppState } from './state'
@@ -119,9 +119,7 @@ async function importVideo(
   await writeOriginal(state.dirs!, `${id}.${ext}`, file)
   await storeThumb(state, id, probe.frame)
 
-  const moov = await readMoov(file)
-  const recorded = moov ? movieTime(moov) : null
-  const takenAt = nameTime(file.name) ?? (recorded && localIso(recorded))
+  const takenAt = videoTaken(file.name, await readMoov(file))
   const video = { duration: probe.duration, ext }
   return { photo: { ...newItem(id, file, probe), takenAt, video } }
 }
