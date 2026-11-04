@@ -34,33 +34,6 @@ disk.
 The script adds the service and the launcher entry. Run it again after
 moving the project. Its header lists how to remove both.
 
-### AUR package
-
-An AUR package, `photoloft`, is coming. Once it is published:
-
-```
-yay -S photoloft
-```
-
-On Omarchy it opens as a web app, on other Arch systems in a Chromium
-app window. Its service starts when you open Photoloft.
-
-### From the script install to the package
-
-Both add a launcher entry and a user service named `photoloft.service`,
-and the script's service would win. Remove the script install first,
-then install the package:
-
-```
-omarchy-webapp-remove Photoloft
-systemctl --user disable --now photoloft
-rm ~/.config/systemd/user/photoloft.service
-yay -S photoloft
-```
-
-The library and Chromium's folder access stay, since both serve the
-same address.
-
 ## Use
 
 On first start, pick an empty folder such as `~/Pictures/Photoloft`.
