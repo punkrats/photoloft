@@ -1,10 +1,15 @@
 # Photoloft
 
-A small photo tool for Chromium: import JPEGs, sort them into albums,
-fix colour, tone and angle, and export each album as consecutively
-named, size-limited JPEGs. Everything stays on your disk.
+A small photo app for [Omarchy](https://github.com/basecamp/omarchy):
+import photos and videos, sort them into albums, fix colour, tone and
+angle, and export each album as named, size-limited files. Everything
+stays on your disk.
 
 ## Use
+
+Photoloft runs in Chromium, Omarchy's browser. Building it needs
+Node.js; its small local service needs Python 3, and video exports need
+ffmpeg.
 
 ```
 npm install
@@ -29,9 +34,9 @@ unless an album has a folder of its own.
 - Photos already in the library (same content, any file name) are
   skipped; those in the Trash come back, and with an album open they
   join it. An import that changes nothing leaves no undo step. Hidden
-  folders, non-JPEG files and other programs' thumbnail and cache
-  folders (`thumbs`, `thumbnails`, `previews`, `cache`, `*.lrdata`,
-  `@eaDir`) are left out.
+  folders, files other than JPEGs and videos, and other programs'
+  thumbnail and cache folders (`thumbs`, `thumbnails`, `previews`,
+  `cache`, `*.lrdata`, `@eaDir`) are left out.
 - Star keepers with `S` or the star on a thumbnail; the Starred view
   lists them.
 - Add to album (selection bar, editor header, `G`) puts the selection,
