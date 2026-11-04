@@ -338,11 +338,11 @@ function cell(
   const url = state.thumbs.get(id)
   const detail = sortDetail(lib.photos[id], sort)
   const kept = photo.video && trimRange(photo.video)
+  const edited = isEdited(photo.edit)
   const classes = {
     cell: true,
     selected,
     current: state.current === id,
-    edited: isEdited(photo.edit),
     starred: photo.starred
   }
 
@@ -375,9 +375,6 @@ function cell(
             </span>
           `
           : nothing}
-        <span class="cell-badge" title="Edited">
-          <i class="icon-sliders-horizontal"></i>
-        </span>
         <button
           class="cell-star"
           data-action="star-one"
@@ -389,7 +386,12 @@ function cell(
       </span>
       <figcaption class="cell-name">
         ${detail ? html`<span class="cell-detail">${detail}</span>` : nothing}
-        <span class="cell-file">${photo.name}</span>
+        <span class="cell-file-line">
+          ${edited
+            ? html`<i class="icon-sliders-horizontal" title="Edited"></i>`
+            : nothing}
+          <span class="cell-file">${photo.name}</span>
+        </span>
       </figcaption>
     </figure>
   `

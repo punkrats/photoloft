@@ -185,30 +185,17 @@
   pointer-events: none;
 }
 
-.cell-badge,
 .cell-star {
   display: grid;
   place-items: center;
   width: 26px;
   height: 26px;
-  border-radius: var(--radius);
-  background: var(--shade);
-  font-size: var(--font-sm);
-}
-
-.cell-badge {
-  display: none;
-  pointer-events: none;
-
-  .cell.edited & {
-    display: grid;
-  }
-}
-
-.cell-star {
   padding: 0;
   border: none;
-  color: var(--text);
+  border-radius: var(--radius);
+  background: var(--shade);
+  color: var(--text-muted);
+  font-size: var(--font-sm);
   cursor: pointer;
   opacity: 0;
 
@@ -216,9 +203,9 @@
     opacity: 1;
   }
 
+  // Brighter than the hover star, so the two stay apart on hover.
   .cell.starred & {
-    background: var(--star);
-    color: var(--star-text);
+    color: var(--text);
     opacity: 1;
   }
 }
@@ -255,7 +242,18 @@
   white-space: nowrap;
 }
 
-.cell-detail + .cell-file {
+.cell-file-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+
+  // Takes the pointer so its title shows.
+  > i {
+    pointer-events: auto;
+  }
+}
+
+.cell-detail + .cell-file-line {
   color: var(--scrim-text-muted);
 }
 

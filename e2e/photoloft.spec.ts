@@ -997,6 +997,76 @@ test('stars photos to keep', async ({ page }) => {
   await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-c.jpg'])
 })
 
+test('marks edited and starred photos in the grid', async ({ page }) => {
+  const long = 'a-photo-whose-name-is-far-too-long-for-its-thumbnail.jpg'
+  const edited = cell(page, long)
+  const plain = cell(page, 'e2e-b.jpg')
+  const strip = edited.locator('.cell-name')
+  const mark = strip.getByTitle('Edited')
+  const file = edited.locator('.cell-file')
+  const star = edited.locator('.cell-star')
+  const hoverStar = plain.locator('.cell-star')
+  await openLibrary(page)
+  await writeFixtures(page, {
+    [`marks/${long}`]: 'e2e-a.jpg',
+    'marks/e2e-b.jpg': 'e2e-b.jpg'
+  })
+  await importFolder(page, ['marks'])
+  await expect(page.locator('.cell')).toHaveCount(2)
+  await expect(page.getByTitle('Edited')).toHaveCount(0)
+
+  // An edit puts the sliders icon in that photo's name strip only.
+  await edited.dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await page.locator('input[data-key="exposure"]').fill('1')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.library')).toBeVisible()
+  await expect(page.getByTitle('Edited')).toHaveCount(1)
+  await expect(mark).toHaveCount(1)
+  await star.click()
+
+  // Without hover the strip is hidden; the star of a starred photo
+  // stays, an unstarred one's does not.
+  await page.mouse.move(0, 0)
+  await expect(strip).toHaveCSS('opacity', '0')
+  await expect(star).toHaveCSS('opacity', '1')
+  await expect(hoverStar).toHaveCSS('opacity', '0')
+
+  // On hover the icon sits before the name, below the sort value, and
+  // the long name ends in an ellipsis inside the cell.
+  await edited.hover()
+  await expect(strip).toHaveCSS('opacity', '1')
+  await expect(edited.locator('.cell-detail')).toHaveCount(1)
+  await expect(file).toHaveText(long)
+  const cut = await file.evaluate(el => el.scrollWidth > el.clientWidth)
+  expect(cut).toBe(true)
+
+  const box = (await edited.boundingBox())!
+  const icon = (await mark.boundingBox())!
+  const name = (await file.boundingBox())!
+  const detail = (await edited.locator('.cell-detail').boundingBox())!
+  expect(icon.x).toBeGreaterThanOrEqual(box.x)
+  expect(icon.x + icon.width).toBeLessThanOrEqual(name.x)
+  expect(name.x + name.width).toBeLessThanOrEqual(box.x + box.width)
+  expect(icon.y).toBeGreaterThanOrEqual(detail.y + detail.height)
+  expect(icon.y + icon.height / 2).toBeGreaterThan(name.y)
+  expect(icon.y + icon.height / 2).toBeLessThan(name.y + name.height)
+
+  // The starred star shares the hover star's dark square, brighter.
+  await plain.hover()
+  await expect(hoverStar).toHaveCSS('opacity', '1')
+  const look = (el: HTMLElement | SVGElement) => {
+    const style = getComputedStyle(el)
+    return { color: style.color, background: style.backgroundColor }
+  }
+  const light = (colour: string) =>
+    colour.match(/\d+/g)!.slice(0, 3).reduce((sum, v) => sum + Number(v), 0)
+  const starred = await star.evaluate(look)
+  const unstarred = await hoverStar.evaluate(look)
+  expect(starred.background).toBe(unstarred.background)
+  expect(light(starred.color)).toBeGreaterThan(light(unstarred.color))
+})
+
 test('takes keys pressed right after Esc as shortcuts', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'clip.mp4'])
