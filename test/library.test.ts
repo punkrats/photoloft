@@ -58,6 +58,19 @@ describe('albums', () => {
     expect(album(lib).photos).toEqual(['a'])
   })
 
+  it('adds only what the album lacks, once each', () => {
+    const lib = addToAlbum(sample(), 'al1', ['b'])
+    const next = addToAlbum(lib, 'al1', ['a', 'b', 'c', 'a'])
+    expect(album(next).photos).toEqual(['b', 'a', 'c'])
+  })
+
+  it('returns the library itself when nothing is new', () => {
+    const lib = addToAlbum(sample(), 'al1', ['a', 'b'])
+    expect(addToAlbum(lib, 'al1', ['b', 'a'])).toBe(lib)
+    expect(addToAlbum(lib, 'al1', ['nope'])).toBe(lib)
+    expect(addToAlbum(lib, 'gone', ['c'])).toBe(lib)
+  })
+
   it('removes photos from one album only', () => {
     let lib = createAlbum(sample(), 'al2', 'Paris')
     lib = addToAlbum(lib, 'al1', ['a', 'b'])

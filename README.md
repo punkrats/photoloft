@@ -37,7 +37,10 @@ Photoloft keeps imported photos, edits and albums in its hidden
   album and clears the field. Enter or Add adds to the ticked albums
   and to a new album by the name typed; an existing album's name shows
   an error instead. Albums that already hold all the photos show
-  ticked and greyed. One Ctrl+Z undoes the whole add.
+  ticked and greyed. Dragging the selection onto an album in the
+  sidebar adds it there. An album holds each photo once: the toast
+  counts the photos that went in, and an add that finds them all in
+  place changes nothing and says so. One Ctrl+Z undoes the whole add.
 - In every dialog Enter presses the main button (the place search keeps
   Enter for its search), Esc cancels, Up / Down and Tab move between
   fields, and Space ticks a tick box or presses a button.

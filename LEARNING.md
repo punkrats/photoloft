@@ -70,6 +70,9 @@
   for the next frame; use `await expect(locator).toHaveText([...])`.
 - Wait for the sidebar's `[data-saved="true"]` before reloading in a
   test, otherwise the last changes may still be unsaved.
+- To show that an action saves nothing, wait for `saved` first, then
+  read `data-saved` once with `getAttribute` right after the action.
+  `toHaveAttribute` retries and passes once a scheduled save ends.
 - `page.keyboard.press` does not wait for a frame, so a second key can
   arrive while a field the state just closed is still in the page and
   focused. To press keys within one frame on purpose, replace

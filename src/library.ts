@@ -294,12 +294,16 @@ export function deleteAlbum(lib: Library, id: string): Library {
   return { ...lib, albums, exports }
 }
 
+// Appends the known photos the album lacks, each once; with none to
+// add, or no such album, it returns `lib` itself.
 export function addToAlbum(lib: Library, id: string, photoIds: string[]) {
-  return mapAlbum(lib, id, a => {
-    const present = new Set(a.photos)
-    const added = photoIds.filter(p => lib.photos[p] && !present.has(p))
-    return { ...a, photos: [...a.photos, ...new Set(added)] }
-  })
+  const album = lib.albums.find(a => a.id === id)
+  const present = new Set(album?.photos)
+  const added = photoIds.filter(p => lib.photos[p] && !present.has(p))
+  if (!album || !added.length) return lib
+
+  const photos = [...album.photos, ...new Set(added)]
+  return mapAlbum(lib, id, a => ({ ...a, photos }))
 }
 
 export function removeFromAlbum(lib: Library, id: string, ids: string[]) {

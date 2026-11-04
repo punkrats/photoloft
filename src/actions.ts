@@ -135,12 +135,14 @@ function newId() {
 }
 
 // Adds `targets(state)` to every album picked, creating the new ones,
-// as one change that one undo takes back.
+// as one change that one undo takes back. An add that puts no photo
+// anywhere changes nothing; the toast counts the photos that went in.
 export function addSelectionTo(state: AppState, picks: AlbumPick[]) {
   if (!state.library || !picks.length) return
 
   const photos = targets(state)
-  let lib = state.library
+  const before = state.library
+  let lib = before
   const ids: string[] = []
   for (const pick of picks) {
     const id = 'id' in pick ? pick.id : newId()
@@ -152,9 +154,20 @@ export function addSelectionTo(state: AppState, picks: AlbumPick[]) {
 
   const names = ids.map(id => lib.albums.find(a => a.id === id)!.name)
   const where = names.length > 3 ? `${names.length} albums` : formatList(names)
+  const had = ids
+    .map(id => before.albums.find(a => a.id === id)?.photos)
+    .map(list => new Set(list))
+  const added = photos.filter(p => had.some(held => !held.has(p)))
   state.dialog = null
-  const count = `${photos.length} ${plural(photos.length)}`
-  showToast(state, `Added ${count} to ${where}.`)
+  if (added.length) {
+    const count = `${added.length} ${plural(added.length)}`
+    showToast(state, `Added ${count} to ${where}.`)
+  } else {
+    const n = photos.length
+    const these = n === 1 ? 'this photo' : `these ${n} photos`
+    const hold = names.length === 1 ? 'holds' : 'hold'
+    showToast(state, `${where} already ${hold} ${these}.`)
+  }
   render(state)
 }
 

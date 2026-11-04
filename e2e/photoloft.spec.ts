@@ -909,6 +909,42 @@ test('keeps albums that hold the photos ticked', async ({ page }) => {
   await expect(albumCount(page, 'Keepers')).toHaveText('2')
 })
 
+test('drops on an album only the photos it lacks', async ({ page }) => {
+  const toast = page.locator('.toast')
+  const tahiti = page.locator('[data-drop-album]', { hasText: 'Tahiti' })
+  const folder = page.locator('.sidebar-folder')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await cell(page, 'e2e-b.jpg').click()
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Tahiti')
+
+  // Three photos on an album holding one: the other two go in, once.
+  await page.keyboard.press('Control+a')
+  await cell(page, 'e2e-a.jpg').dragTo(tahiti)
+  await expect(toast).toContainText('Added 2 photos to Tahiti.')
+  await expect(albumCount(page, 'Tahiti')).toHaveText('3')
+  await tahiti.click()
+  await expect(names(page)).
+    toHaveText(['e2e-b.jpg', 'e2e-a.jpg', 'e2e-c.jpg'])
+
+  // Dropped again they change nothing: no save is due right after, and
+  // Ctrl+Z takes back the drop before.
+  await page.locator('.nav-item', { hasText: 'All photos' }).click()
+  await page.keyboard.press('Control+a')
+  await saved(page)
+  await cell(page, 'e2e-a.jpg').dragTo(tahiti)
+  await expect(toast).toContainText('Tahiti already holds these 3 photos.')
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(albumCount(page, 'Tahiti')).toHaveText('1')
+
+  await cell(page, 'e2e-b.jpg').click()
+  await cell(page, 'e2e-b.jpg').dragTo(tahiti)
+  await expect(toast).toContainText('Tahiti already holds this photo.')
+  await expect(albumCount(page, 'Tahiti')).toHaveText('1')
+})
+
 test('moves through the album dialog with the keys', async ({ page }) => {
   const dialog = page.locator('.dialog')
   const field = page.locator('[data-input="picker"]')
