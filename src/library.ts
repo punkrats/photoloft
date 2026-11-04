@@ -46,6 +46,10 @@ export type Album = {
 
 export type ExportRecord = { folder: string, files: string[] }
 
+// A capture time to replace: `from` is the time the photo must still
+// have for `to` to apply.
+export type TakenFix = { id: string, from: string | null, to: string }
+
 // The author and copyright last set, offered for photos without one.
 export type MetaDefaults = Pick<Meta, 'author' | 'copyright'>
 
@@ -248,6 +252,18 @@ export function retime(
     }
     if (gap === null) return []
     return [{ ...photo, takenAt: shiftedTaken(photo.takenAt, gap) }]
+  })
+  return withPhotos(lib, photos)
+}
+
+// Gives each photo its fix's time `to` while its capture time is still
+// `from`, so a time changed since stays; a fix that changes nothing is
+// skipped, and with none left it returns `lib` itself.
+export function fixTaken(lib: Library, fixes: TakenFix[]) {
+  const photos = fixes.flatMap(({ id, from, to }) => {
+    const photo = lib.photos[id]
+    const due = photo && photo.takenAt === from && from !== to
+    return due ? [{ ...photo, takenAt: to }] : []
   })
   return withPhotos(lib, photos)
 }
@@ -538,12 +554,15 @@ function sortIds(lib: Library, ids: string[], by: Sort) {
 
 type Raw = Record<string, unknown>
 
+type LibraryFile = { name: string, text: string }
+type Picked = LibraryFile & { library: Library, seq: number, repairs: string[] }
+
 // Saves alternate between two files, each tagged with a sequence
 // number, so a save cut short by a crash only damages one of them.
+// Next to the library each file names the one-time repairs it had.
 // Unreadable copies are skipped; a copy from a newer Photoloft throws.
-export function pickLibrary(candidates: { name: string, text: string }[]) {
-  let best: { name: string, text: string, library: Library, seq: number } |
-    null = null
+export function pickLibrary(candidates: LibraryFile[]) {
+  let best: Picked | null = null
 
   for (const candidate of candidates) {
     let raw: unknown
@@ -555,7 +574,8 @@ export function pickLibrary(candidates: { name: string, text: string }[]) {
 
     const library = migrate(raw)
     const seq = num(record(raw).seq, 0)
-    if (!best || seq > best.seq) best = { ...candidate, library, seq }
+    const repairs = list(record(raw).repairs).filter(isString)
+    if (!best || seq > best.seq) best = { ...candidate, library, seq, repairs }
   }
   return best
 }

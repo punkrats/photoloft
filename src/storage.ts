@@ -4,6 +4,9 @@ import {
 } from './library'
 import type { Progress } from './state'
 
+// `seq` numbers the saves and `repairs` names the one-time repairs the
+// library has had. Both are saved beside the library, outside the
+// snapshots undo restores.
 export type Dirs = {
   root: FileSystemDirectoryHandle
   data: FileSystemDirectoryHandle
@@ -11,6 +14,7 @@ export type Dirs = {
   thumbs: FileSystemDirectoryHandle
   backups: FileSystemDirectoryHandle
   seq: number
+  repairs: string[]
 }
 
 // These keep the app's former name on purpose: existing installs find
@@ -89,7 +93,8 @@ export async function openLibrary(root: FileSystemDirectoryHandle) {
     originals: await data.getDirectoryHandle('originals', { create: true }),
     thumbs: await data.getDirectoryHandle('thumbs', { create: true }),
     backups: await data.getDirectoryHandle('backups', { create: true }),
-    seq: 0
+    seq: 0,
+    repairs: []
   }
 
   const files = await readAll(data, [...SLOTS, LEGACY_FILE])
@@ -101,6 +106,7 @@ export async function openLibrary(root: FileSystemDirectoryHandle) {
   if (!picked) return { dirs, library: emptyLibrary(), restored: null }
 
   dirs.seq = picked.seq
+  dirs.repairs = picked.repairs
   await backup(dirs, picked.text)
   const restored = current ? null : picked.name
   return { dirs, library: picked.library, restored }
@@ -110,7 +116,7 @@ export async function openLibrary(root: FileSystemDirectoryHandle) {
 // the last good state if this write is interrupted.
 export async function saveLibrary(dirs: Dirs, library: Library) {
   const seq = dirs.seq + 1
-  const text = JSON.stringify({ ...library, seq })
+  const text = JSON.stringify({ ...library, seq, repairs: dirs.repairs })
   await writeFile(dirs.data, SLOTS[seq % 2], text)
   dirs.seq = seq
 }

@@ -110,6 +110,11 @@
 - Toasts sit over the bottom of the editor, the video's play bar
   included; dismiss them before pointer work there.
 - `toHaveCSS('--name', value)` reads custom properties too.
+- `test.use({ timezoneId: 'Pacific/Tahiti' })` inside a
+  `test.describe` gives those tests' pages that zone, whatever the
+  machine's. In Vitest, `process.env.TZ = '...'` at the top of a test
+  file does the same for that file (Vitest 4 runs files in forked
+  processes); run once with `TZ=UTC npm test` to see the pin hold.
 - Playwright checks a `<label>` for actionability through its control:
   clicking a label whose checkbox is disabled waits until the timeout.
   `click({ force: true })` shows what the user's click does.
@@ -144,6 +149,13 @@
 
 ## Metadata
 
+- `exiftool -DateTime1 clip.MOV` prints the clock text an Olympus
+  camera writes into moov/udta/TAGS; `ffprobe -show_entries
+  format_tags=creation_time` prints `mvhd` as UTC. Comparing the two
+  tells whether the camera wrote local time into `mvhd`.
+- Undo restores whole `Library` snapshots, so anything that must
+  survive an undo (the one-time repairs a library has had) is saved
+  beside the Library, in `Dirs` next to `seq`.
 - ffmpeg's MP4 muxer writes `-metadata location=` only as a 3GPP
   `loci` box. Android and Google Photos read the QuickTime `©xyz`
   entry in moov/udta, which ffmpeg writes for MOV output only, so the

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   addPhotos, addToAlbum, albumsByName, createAlbum, deleteAlbum,
-  emptyLibrary, emptyTrash, libraryCounts, migrate, moveInAlbum, pickLibrary,
-  removeFromAlbum, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
-  setAlbumExportName, setAlbumSort, setEdits, setLastImport, setMeta,
-  setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
+  emptyLibrary, emptyTrash, fixTaken, libraryCounts, migrate, moveInAlbum,
+  pickLibrary, removeFromAlbum, renameAlbum, renamePhoto, renamePhotos,
+  restorePhotos, setAlbumExportName, setAlbumSort, setEdits, setLastImport,
+  setMeta, setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
   albumSections, notInAlbums, draggedTrim, markedTrim, MIN_TRIM, setTrim,
   trimRange, type Library, type Photo, type Trim, type VideoInfo
 } from '../src/library'
@@ -418,6 +418,46 @@ describe('retime', () => {
   })
 })
 
+describe('fixTaken', () => {
+  const clips = () => addPhotos(sample(), [
+    photo('v1', { takenAt: '2026-11-02T06:51:41' }),
+    photo('v2', { takenAt: '2026-11-02T05:24:09' })
+  ])
+
+  it('sets the new time on photos that still have the old one', () => {
+    const before = clips()
+    const lib = fixTaken(before, [
+      { id: 'v1', from: '2026-11-02T06:51:41', to: '2026-11-02T16:51:41' },
+      { id: 'v2', from: '2026-11-02T05:24:09', to: '2026-11-02T15:24:10' }
+    ])
+    expect(lib.photos.v1.takenAt).toBe('2026-11-02T16:51:41')
+    expect(lib.photos.v2.takenAt).toBe('2026-11-02T15:24:10')
+    expect(lib.photos.a).toBe(before.photos.a)
+  })
+
+  it('keeps a time changed since, and skips unknown photos', () => {
+    const before = clips()
+    const lib = fixTaken(before, [
+      { id: 'v1', from: '2026-11-02T06:51:40', to: '2026-11-02T16:51:41' },
+      { id: 'v2', from: '2026-11-02T05:24:09', to: '2026-11-02T15:24:10' },
+      { id: 'gone', from: null, to: '2026-11-02T15:24:10' }
+    ])
+    expect(lib.photos.v1).toBe(before.photos.v1)
+    expect(lib.photos.v2.takenAt).toBe('2026-11-02T15:24:10')
+    expect(lib.photos.gone).toBeUndefined()
+  })
+
+  it('returns the library itself when no time changes', () => {
+    const before = clips()
+    const same = '2026-11-02T06:51:41'
+    expect(fixTaken(before, [])).toBe(before)
+    expect(fixTaken(before, [{ id: 'v1', from: same, to: same }])).
+      toBe(before)
+    const undated = { id: 'c', from: same, to: '2026-11-02T16:51:41' }
+    expect(fixTaken(before, [undated])).toBe(before)
+  })
+})
+
 describe('setMeta', () => {
   const rome = { lat: 41.9, lon: 12.5 }
   const tagged = () => addPhotos(sample(), [
@@ -623,6 +663,16 @@ describe('pickLibrary', () => {
       { name: 'library-1.json', text: saved(1, 'current') }
     ])
     expect(picked!.library.albums[0].name).toBe('current')
+  })
+
+  it('reads the repairs the library had, kept beside it', () => {
+    const lib = emptyLibrary()
+    const text = JSON.stringify({ ...lib, seq: 4, repairs: ['fix', 3] })
+    const picked = pickLibrary([{ name: 'library-1.json', text }])
+    expect(picked!.repairs).toEqual(['fix'])
+    expect(picked!.library).toEqual(lib)
+    expect(pickLibrary([{ name: 'a', text: saved(1, 'x') }])!.repairs).
+      toEqual([])
   })
 
   it('returns null when nothing is readable', () => {

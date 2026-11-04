@@ -1,4 +1,6 @@
-import { commit, redoChange, replaceLibrary, undoChange } from './commit'
+import {
+  commit, redoChange, replaceLibrary, scheduleSave, undoChange
+} from './commit'
 import {
   autoCurrent, autoSelection, autoWhiteBalanceCurrent, closeEditor,
   copySettings, dragTrim, flip, openPhoto, pasteSettings, resetColour,
@@ -10,10 +12,10 @@ import { formatList } from './format'
 import { emptyHistory } from './history'
 import { importEntries } from './importer'
 import {
-  addToAlbum, createAlbum, deleteAlbum, emptyTrash, removeFromAlbum,
-  notInAlbums, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
-  setAlbumSort, retime, setMeta, setPhotoSizes, toggleStars, trashPhotos,
-  type AlbumSort, type TrimEdge
+  addToAlbum, createAlbum, deleteAlbum, emptyTrash, fixTaken,
+  removeFromAlbum, notInAlbums, renameAlbum, renamePhoto, renamePhotos,
+  restorePhotos, setAlbumSort, retime, setMeta, setPhotoSizes, toggleStars,
+  trashPhotos, type AlbumSort, type TakenFix, type TrimEdge
 } from './library'
 import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
@@ -26,7 +28,7 @@ import {
   chooseImportFolder, chooseLibrary, deletePhotoFiles, grantAccess,
   openLibrary, readOriginal, rememberLibrary
 } from './storage'
-import { localIso } from './mp4'
+import { headerTaken, localIso, olympusTaken, readMoov } from './mp4'
 import {
   dateChange, infoChange, newInfoForm, newRename, pickerAdd, renameNames,
   toggledTicks
@@ -34,6 +36,8 @@ import {
 
 type Data = DOMStringMap
 type Handler = (state: AppState, data: Data, event: Event) => void
+
+const OLYMPUS_REPAIR = 'olympus-video-times'
 
 // ─── Library folder ──────────────────────────────────────────────────
 
@@ -50,6 +54,7 @@ async function openFrom(state: AppState, handle: FileSystemDirectoryHandle) {
     state.history = emptyHistory()
     await rememberLibrary(handle)
     void recordSizes(state)
+    void correctOlympusTimes(state)
     if (restored) {
       showToast(state, `The library file was damaged. Restored ${restored}.`)
     }
@@ -88,6 +93,45 @@ async function recordSizes(state: AppState) {
     }
   }
   replaceLibrary(state, setPhotoSizes(state.library!, sizes))
+}
+
+// Clips whose header holds an Olympus camera's local clock reading were
+// stored with it read as UTC. Once per library, those whose time is
+// still that get the camera's, as one undo step. The mark sits in
+// `Dirs`, outside undo, so a reload after Ctrl+Z leaves them alone.
+async function correctOlympusTimes(state: AppState) {
+  const dirs = state.dirs
+  if (!dirs || dirs.repairs.includes(OLYMPUS_REPAIR)) return
+
+  const fixes: TakenFix[] = []
+  for (const photo of Object.values(state.library!.photos)) {
+    if (!photo.video) continue
+    try {
+      const moov = await readMoov(await readOriginal(dirs, photo))
+      const camera = moov && olympusTaken(moov)
+      if (!moov || camera?.header !== 'local') continue
+      fixes.push({ id: photo.id, from: headerTaken(moov), to: camera.taken })
+    } catch {
+      // Missing original; the clip keeps its time.
+    }
+  }
+  if (state.dirs !== dirs) return
+
+  dirs.repairs.push(OLYMPUS_REPAIR)
+  const lib = state.library!
+  const fixed = fixTaken(lib, fixes)
+  if (fixed === lib) {
+    scheduleSave(state)
+    return
+  }
+
+  commit(state, fixed)
+  const changed = fixes.filter(f => fixed.photos[f.id] !== lib.photos[f.id])
+  const what = changed.length === 1
+    ? 'the capture time of 1 Olympus video'
+    : `the capture times of ${changed.length} Olympus videos`
+  showToast(state, `Corrected ${what}. Ctrl+Z undoes it.`)
+  render(state)
 }
 
 async function chooseFolder(state: AppState) {

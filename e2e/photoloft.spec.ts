@@ -1505,6 +1505,138 @@ test('dates photos that had none, keeping their order', async ({ page }) => {
   expect(exifTags(bytes).get('exif.0x9003')).toBe('2023:12:31 23:59:00')
 })
 
+// ─── Olympus clips imported earlier ──────────────────────────────────
+
+const OLYMPUS_REPAIR = 'olympus-video-times'
+
+// clip.mp4 as an Olympus E-M10 Mark IV leaves a clip: the clock reading
+// `text` in the camera's box moov/udta/TAGS/OLYM/prms, and `header`, a
+// UTC time, in the movie header. The box goes in after the header; moov
+// follows the media data, so no chunk offset moves.
+function olympusClip(text: string, header: string) {
+  const clip = readFileSync(join(FIXTURES, 'clip.mp4'))
+  const find = (type: string, from: number) => {
+    for (let at = from; at < clip.length; at += clip.readUInt32BE(at)) {
+      if (clip.toString('latin1', at + 4, at + 8) === type) return at
+    }
+    throw new Error(`clip.mp4 has no ${type} box`)
+  }
+  const box = (type: string, ...parts: Buffer[]) => {
+    const head = Buffer.alloc(8)
+    head.writeUInt32BE(8 + parts.reduce((n, part) => n + part.length, 0))
+    head.write(type, 4, 'latin1')
+    return Buffer.concat([head, ...parts])
+  }
+
+  const prms = Buffer.alloc(504)
+  prms.write(text, 0x83, 'latin1')
+  const tags = box('TAGS', Buffer.alloc(12), box('OLYM', box('prms', prms)))
+  const udta = box('udta', tags)
+
+  const moov = find('moov', 0)
+  const mvhd = find('mvhd', moov + 8)
+  const end = mvhd + clip.readUInt32BE(mvhd)
+  const seconds = Date.parse(`${header}Z`) / 1000 + 2082844800
+  clip.writeUInt32BE(clip.readUInt32BE(moov) + udta.length, moov)
+  clip.writeUInt32BE(seconds, mvhd + 12)
+  return Buffer.concat([clip.subarray(0, end), udta, clip.subarray(end)])
+}
+
+// The newest library file the app saved, parsed.
+async function savedLibrary(page: Page) {
+  const dir = ['library', '.library']
+  const slots = (await listFiles(page, dir)).
+    filter(name => /^library-[ab]\.json$/.test(name))
+  const saves = await Promise.all(slots.map(async slot => {
+    const bytes = await readFile(page, [...dir, slot])
+    return JSON.parse(new TextDecoder().decode(bytes))
+  }))
+  return saves.sort((a, b) => b.seq - a.seq)[0]
+}
+
+test.describe('in Tahiti', () => {
+  test.use({ timezoneId: 'Pacific/Tahiti' })
+
+  test('corrects Olympus clips imported earlier, once', async ({ page }) => {
+    const toast = page.locator('.toast')
+    const early = [
+      'PB010001.MOV', 'PB010002.MOV', 'e2e-a.jpg', 'PB010004.MOV',
+      'e2e-b.jpg', 'PB010003.MOV'
+    ]
+    await openLibrary(page)
+    await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+    await saved(page)
+
+    // A library without Olympus clips gets the mark too.
+    expect((await savedLibrary(page)).repairs).toEqual([OLYMPUS_REPAIR])
+
+    // Clips of 1 January 2024, 12:00 on the camera clock. The camera
+    // writes that reading into the header as well, PB010002 a second
+    // earlier. PB010004 comes from a body that writes UTC there, also a
+    // second earlier.
+    const clips = {
+      'PB010001.MOV': ['Mon Jan  1 12:00:00 2024', '2024-01-01T12:00:00'],
+      'PB010002.MOV': ['Mon Jan  1 12:00:30 2024', '2024-01-01T12:00:29'],
+      'PB010003.MOV': ['Mon Jan  1 12:01:00 2024', '2024-01-01T12:01:00'],
+      'PB010004.MOV': ['Mon Jan  1 12:02:00 2024', '2024-01-01T22:01:59']
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'photoloft-'))
+    const files = Object.entries(clips).map(([name, [text, header]]) => {
+      writeFileSync(join(dir, name), olympusClip(text, header))
+      return join(dir, name)
+    })
+    await page.locator('#import-files').setInputFiles(files)
+    await expect(toast).toContainText('Imported 4 photos')
+    await saved(page)
+
+    // The library as an import that read only the header left it: the
+    // camera clock taken as UTC, ten hours early here, and PB010004 a
+    // second early. PB010003 was moved by hand since; the file has no
+    // repairs yet.
+    const library = await savedLibrary(page)
+    const photos = Object.values(library.photos) as
+      { name: string, takenAt: string }[]
+    const times: Record<string, string> = {
+      'PB010001.MOV': '2024-01-01T02:00:00',
+      'PB010002.MOV': '2024-01-01T02:00:29',
+      'PB010003.MOV': '2024-01-03T09:00:00',
+      'PB010004.MOV': '2024-01-01T12:01:59'
+    }
+    for (const photo of photos) {
+      photo.takenAt = times[photo.name] ?? photo.takenAt
+    }
+    delete library.repairs
+    for (const slot of ['library-a.json', 'library-b.json']) {
+      const path = ['library', '.library', slot]
+      await writeFile(page, path, JSON.stringify(library))
+    }
+
+    // Opened again, the two clips whose header holds the camera clock
+    // and whose time is still the header's get the camera's, as one
+    // undo step.
+    await page.reload()
+    await expect(toast).toHaveText(
+      'Corrected the capture times of 2 Olympus videos. Ctrl+Z undoes it.'
+    )
+    await expect(names(page)).toHaveText([
+      'e2e-a.jpg', 'PB010001.MOV', 'PB010002.MOV', 'PB010004.MOV',
+      'e2e-b.jpg', 'PB010003.MOV'
+    ])
+    await page.keyboard.press('Control+z')
+    await expect(names(page)).toHaveText(early)
+    await saved(page)
+
+    // It happens once: reopened after the undo, the clips keep their
+    // time. Nothing shows when the reading ends, so the test waits.
+    await page.reload()
+    await expect(names(page)).toHaveText(early)
+    await page.waitForTimeout(1500)
+    await expect(names(page)).toHaveText(early)
+    await expect(toast).toBeHidden()
+    expect((await savedLibrary(page)).repairs).toEqual([OLYMPUS_REPAIR])
+  })
+})
+
 // ─── Rename ──────────────────────────────────────────────────────────
 
 function renameField(page: Page) {

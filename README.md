@@ -93,6 +93,10 @@ Photoloft keeps imported photos, edits and albums in its hidden
   and crop settings as photos. Album exports include them at 720p,
   1080p or original size, made by ffmpeg through the Photoloft service
   with a colour table computed from the preview's maths.
+- An Olympus clip's date comes from the camera's clock text, unless
+  another app has changed the clip's own date since. Clips imported
+  before Photoloft read that text get the camera's time once, when the
+  library opens; a toast says how many, and Ctrl+Z takes it back.
 - Trim a video in the editor: drag the grips at the ends of the play bar,
   or press `I` and `O` to mark in and out where it plays; `0` to `9`
   jump to 0 % to 90 % of the clip. Play runs from the in mark to the out

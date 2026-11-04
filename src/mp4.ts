@@ -1,13 +1,17 @@
 import type { Location } from './meta'
-import { realTaken } from './taken'
+import { realTaken, takenDifference } from './taken'
 
 type Box = { start: number, end: number }
+
+// What an Olympus clip's movie header holds next to the camera text.
+type HeaderClock = 'local' | 'utc' | 'rewritten' | 'missing'
 
 const EPOCH_1904 = 2082844800
 const FILE_NAME_TIME = /(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d)/
 const ISO_6709 = /^([+-]\d{2}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)/
 const CLOCK_TEXT = /^\w{3} (\w{3}) +(\d\d?) (\d\d:\d\d:\d\d) (\d{4})/
 const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')
+const CLOCK_SLACK_MS = 2000
 
 // Creation time from the movie header (mvhd): seconds since 1904, meant
 // as UTC; the Olympus E-M10 Mark IV writes its clock reading there.
@@ -81,13 +85,43 @@ export function nameTime(name: string) {
   return realTaken(`${y}-${mo}-${d}T${h}:${mi}:${s}`)
 }
 
-// A video's capture time as a local clock reading: an Olympus camera's
-// text, then a phone file name, both local already, then the movie
-// header, which is UTC, in this computer's time zone.
+// An Olympus clip's capture time and what its movie header holds. The
+// camera text counts when the header has no time or agrees with it
+// within 2 seconds, read as a plain clock reading ('local') or as UTC
+// in this computer's zone ('utc'); otherwise another app rewrote the
+// header and it counts, read as UTC. Null without the text.
+export function olympusTaken(
+  moov: Uint8Array
+): { taken: string, header: HeaderClock } | null {
+  const text = olympusTime(moov)
+  if (!text) return null
+
+  const recorded = movieTime(moov)
+  if (!recorded) return { taken: text, header: 'missing' }
+
+  const agrees = (reading: string) =>
+    Math.abs(takenDifference(reading, text)) <= CLOCK_SLACK_MS
+  const plain = recorded.toISOString().slice(0, 19)
+  const utc = localIso(recorded)
+  if (agrees(plain)) return { taken: text, header: 'local' }
+  if (agrees(utc)) return { taken: text, header: 'utc' }
+  return { taken: utc, header: 'rewritten' }
+}
+
+// The movie header's time, which is UTC, as a clock reading in this
+// computer's time zone.
+export function headerTaken(moov: Uint8Array) {
+  const recorded = movieTime(moov)
+  return recorded ? localIso(recorded) : null
+}
+
+// A video's capture time as a local clock reading: an Olympus clip's
+// by `olympusTaken`, then a phone file name, which is local already,
+// then the movie header.
 export function videoTaken(name: string, moov: Uint8Array | null) {
-  const recorded = moov && movieTime(moov)
-  return (moov && olympusTime(moov)) ?? nameTime(name) ??
-    (recorded ? localIso(recorded) : null)
+  const olympus = moov && olympusTaken(moov)
+  if (olympus) return olympus.taken
+  return nameTime(name) ?? (moov && headerTaken(moov))
 }
 
 export function localIso(date: Date) {
