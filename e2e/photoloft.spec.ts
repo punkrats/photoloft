@@ -2006,6 +2006,23 @@ test('renames in an album and in the editor', async ({ page }) => {
   await expect(names(page)).
     toHaveText(['Moorea-001.jpg', 'Moorea-002.jpg', 'Moorea-003.jpg'])
 
+  // A photo that joins later gets the next number, and the toast counts
+  // only the names that changed; with none changed it says so.
+  await importPhotos(page, ['e2e-d.jpg'])
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('r')
+  await expect(title).toHaveText('Rename 4 photos')
+  await page.keyboard.press('Enter')
+  await expect(toast).toHaveText('Renamed 1 photo.')
+  await expect(names(page)).toHaveText([
+    'Moorea-001.jpg', 'Moorea-002.jpg', 'Moorea-003.jpg', 'Moorea-004.jpg'
+  ])
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('r')
+  await expect(title).toHaveText('Rename 4 photos')
+  await page.keyboard.press('Enter')
+  await expect(toast).toHaveText('These 4 photos already have these names.')
+
   // One photo starts from its name without the extension.
   await cell(page, 'Moorea-002.jpg').click()
   await page.keyboard.press('r')
@@ -2033,7 +2050,7 @@ test('renames in an album and in the editor', async ({ page }) => {
   await page.keyboard.press('r')
   await expect(field).toHaveValue('Beach')
   await page.keyboard.press('Enter')
-  await expect(toast).toHaveText('Renamed 1 photo.')
+  await expect(toast).toHaveText('This photo already has this name.')
   expect(await folder.getAttribute('data-saved')).toBe('true')
   await page.keyboard.press('Control+z')
   await expect(name).toHaveText('Moorea-001.jpg')

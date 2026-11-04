@@ -345,16 +345,27 @@ function insertToken(state: AppState, token: string) {
 }
 
 // One change for all the photos; one that renames none records nothing.
+// The toast counts the photos whose name changed.
 function applyRename(state: AppState) {
   const d = state.dialog
-  if (d?.kind !== 'rename' || !state.library || !d.pattern.trim()) return
+  const lib = state.library
+  if (d?.kind !== 'rename' || !lib || !d.pattern.trim()) return
 
-  const names = renameNames(state.library, d)
+  const names = renameNames(lib, d)
   const named = Object.fromEntries(d.ids.map((id, i) => [id, names[i]]))
+  const renamed = d.ids.filter((id, i) => lib.photos[id].name !== names[i])
   state.dialog = null
-  commit(state, renamePhotos(state.library, named))
-  const count = `${d.ids.length} ${plural(d.ids.length)}`
-  showToast(state, `Renamed ${count}.`)
+  commit(state, renamePhotos(lib, named))
+  if (renamed.length) {
+    const count = `${renamed.length} ${plural(renamed.length)}`
+    showToast(state, `Renamed ${count}.`)
+  } else {
+    const n = d.ids.length
+    const these = n === 1
+      ? 'This photo already has this name'
+      : `These ${n} photos already have these names`
+    showToast(state, `${these}.`)
+  }
 }
 
 function trashUnalbumed(state: AppState) {

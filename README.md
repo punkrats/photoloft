@@ -50,8 +50,10 @@ unless an album has a folder of its own.
   taken, else when imported), and `{name}` (the photo's own name); the
   Insert buttons type them at the cursor. Each photo keeps its
   extension, and a preview shows the first and last name. One Ctrl+Z
-  undoes it. Double-clicking the name in the editor still renames that
-  photo in place.
+  undoes it. The toast counts the photos whose name changed, and a
+  rename that keeps every name records nothing and says so.
+  Double-clicking the name in the editor still renames that photo in
+  place.
 - Folder in an album's Export dialog: Choose… picks a folder for that
   album, and its exports go straight into it, replacing files of the
   same name; Use library folder goes back to `Exports/<album>/`. The
