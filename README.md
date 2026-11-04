@@ -48,9 +48,12 @@ Photoloft keeps imported photos, edits and albums in its hidden
   from Start at, three digits or more), `{date}` and `{time}` (when
   taken, else when imported), and `{name}` (the photo's own name); the
   Insert buttons type them at the cursor. Each photo keeps its
-  extension, equal names get -2, -3, and a preview shows the first and
-  last name. One Ctrl+Z undoes it. Double-clicking the name in the
-  editor still renames that photo in place.
+  extension, and a preview shows the first and last name. One Ctrl+Z
+  undoes it. Double-clicking the name in the editor still renames that
+  photo in place.
+- Renames and album exports with photo names give each name once, case
+  ignored: the first of equal names keeps it, and each repeat gets the
+  lowest free -2, -3, skipping any name already in the list.
 - In every dialog Enter presses the main button (the place search keeps
   Enter for its search), Esc cancels, Up / Down and Tab move between
   fields, and Space ticks a tick box or presses a button.

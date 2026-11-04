@@ -75,18 +75,27 @@ function numbered(count: number, start: number) {
   })
 }
 
-// A name given before, case ignored, gets -2, -3 before its extension.
+// Each name once, case ignored. The first of equal names keeps it; a
+// repeat gets the lowest -2, -3 before its extension that no name in
+// the list has, later ones included, and no earlier repeat got.
 function unclashed(files: string[]) {
-  const seen = new Map<string, number>()
+  const taken = new Set(files.map(file => file.toLowerCase()))
+  const last = new Map<string, number>()
 
   return files.map(file => {
     const key = file.toLowerCase()
-    const count = (seen.get(key) ?? 0) + 1
-    seen.set(key, count)
-    if (count === 1) return file
+    let n = last.get(key)
+    if (n === undefined) {
+      last.set(key, 1)
+      return file
+    }
 
     const [stem, ext] = splitExtension(file)
-    return `${stem}-${count}${ext}`
+    let name = file
+    while (taken.has(name.toLowerCase())) name = `${stem}-${++n}${ext}`
+    taken.add(name.toLowerCase())
+    last.set(key, n)
+    return name
   })
 }
 

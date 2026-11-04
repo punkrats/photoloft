@@ -4,6 +4,15 @@ import {
   sanitizeName, splitExtension, withExtension
 } from '../src/naming'
 
+// Every order of the names.
+function orders(names: string[]): string[][] {
+  if (names.length < 2) return [names]
+  return names.flatMap((name, i) => {
+    const rest = names.filter((_, j) => j !== i)
+    return orders(rest).map(order => [name, ...order])
+  })
+}
+
 describe('sanitizeName', () => {
   it('keeps ordinary names', () => {
     expect(sanitizeName('Rome 2026')).toBe('Rome 2026')
@@ -64,6 +73,41 @@ describe('originalFileNames', () => {
   it('suffixes clashes case-insensitively', () => {
     const names = originalFileNames(['a.jpg', 'A.jpg', 'a.jpg'])
     expect(names).toEqual(['a.jpg', 'A-2.jpg', 'a-3.jpg'])
+  })
+
+  it('skips suffixes the list holds, later ones too', () => {
+    expect(originalFileNames(['a.jpg', 'a.jpg', 'a-2.jpg'])).
+      toEqual(['a.jpg', 'a-3.jpg', 'a-2.jpg'])
+    expect(originalFileNames(['A-2.JPG', 'a.jpg', 'A.jpg'])).
+      toEqual(['A-2.JPG', 'a.jpg', 'A-3.jpg'])
+  })
+
+  it('gives three of a name the lowest free numbers', () => {
+    expect(originalFileNames(['a.jpg', 'a.jpg', 'a.jpg', 'A-3.jpg'])).
+      toEqual(['a.jpg', 'a-2.jpg', 'a-4.jpg', 'A-3.jpg'])
+  })
+
+  it('suffixes a repeated suffixed name after its own stem', () => {
+    expect(originalFileNames(['a-2.jpg', 'a.jpg', 'a-2.jpg', 'a.jpg'])).
+      toEqual(['a-2.jpg', 'a.jpg', 'a-2-2.jpg', 'a-3.jpg'])
+  })
+
+  it('compares a name without extension as its jpg', () => {
+    expect(originalFileNames(['beach', 'beach.jpg', 'beach-2'])).
+      toEqual(['beach.jpg', 'beach-3.jpg', 'beach-2.jpg'])
+  })
+
+  it('returns each name once and keeps the first of each', () => {
+    const list = ['a.jpg', 'A.JPG', 'a.jpg', 'a-2.jpg', 'a-3.jpg', 'a-2.jpg']
+    for (const order of orders(list)) {
+      const names = originalFileNames(order)
+      const keys = order.map(name => name.toLowerCase())
+      expect(new Set(names.map(name => name.toLowerCase())).size).toBe(6)
+      order.forEach((name, i) => {
+        expect(splitExtension(names[i])[1]).toBe(splitExtension(name)[1])
+        if (keys.indexOf(keys[i]) === i) expect(names[i]).toBe(name)
+      })
+    }
   })
 })
 
@@ -146,6 +190,15 @@ describe('renamedNames', () => {
       toEqual(['Trip.jpg', 'Trip-2.JPG', 'Trip'])
     expect(renamedNames('Trip', [photo('a'), photo('b')], 1)).
       toEqual(['Trip', 'Trip-2'])
+  })
+
+  it('gives no two photos one name', () => {
+    const photos = [photo('a.jpg'), photo('a.jpg'), photo('a-2.jpg')]
+    expect(renamedNames('{name}', photos, 1)).
+      toEqual(['a.jpg', 'a-3.jpg', 'a-2.jpg'])
+    const bare = [photo('Trip'), photo('trip'), photo('Trip-2')]
+    expect(renamedNames('{name}', bare, 1)).
+      toEqual(['Trip', 'trip-3', 'Trip-2'])
   })
 
   it('leaves other braces as typed', () => {
