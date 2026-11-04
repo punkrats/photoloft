@@ -2,7 +2,7 @@ import { commit } from './commit'
 import { jpegInfo } from './exif'
 import { decode, probeVideo } from './images'
 import {
-  addPhotos, addToAlbum, restorePhotos, setLastImport, type Library,
+  addToAlbum, restorePhotos, setLastImport, withPhotos, type Library,
   type Photo, type VideoExt
 } from './library'
 import { readMoov, videoTaken } from './mp4'
@@ -150,7 +150,7 @@ function newItem(
 }
 
 function withImported(state: AppState, added: Photo[], known: string[]) {
-  let lib: Library = addPhotos(state.library!, added)
+  let lib: Library = withPhotos(state.library!, added)
   lib = setLastImport(lib, added.map(p => p.id))
   lib = restorePhotos(lib, known.filter(id => lib.photos[id]?.trashedAt))
 

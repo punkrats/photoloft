@@ -132,13 +132,14 @@ export function emptyLibrary(): Library {
 
 // ─── Photos ──────────────────────────────────────────────────────────
 
-// Adds the photos, replacing any held under the same id; with none
-// given it returns `lib` itself.
-export function addPhotos(lib: Library, photos: Photo[]): Library {
+// The library with the photos under their ids: new ones are added, and
+// changed copies replace the photos held. With none given it returns
+// `lib` itself.
+export function withPhotos(lib: Library, photos: Photo[]): Library {
   if (!photos.length) return lib
 
-  const added = Object.fromEntries(photos.map(p => [p.id, p]))
-  return { ...lib, photos: { ...lib.photos, ...added } }
+  const byId = Object.fromEntries(photos.map(p => [p.id, p]))
+  return { ...lib, photos: { ...lib.photos, ...byId } }
 }
 
 // Only an import that added photos replaces it, so re-importing a card
@@ -362,11 +363,6 @@ export function emptyTrash(lib: Library) {
   })
 
   return { library: { ...lib, photos, albums }, removed }
-}
-
-// Swaps in changed copies of photos the library holds.
-function withPhotos(lib: Library, photos: Photo[]): Library {
-  return addPhotos(lib, photos)
 }
 
 // ─── Albums ──────────────────────────────────────────────────────────

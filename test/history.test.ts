@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { emptyHistory, recordChange, redo, undo } from '../src/history'
 import {
-  addPhotos, createAlbum, deleteAlbum, emptyLibrary, renameAlbum,
+  createAlbum, deleteAlbum, emptyLibrary, renameAlbum,
   setAlbumExportFolder, setAlbumExportName, setExportRecord,
   setExportSettings, setPhotoSizes, toggleStars, withBookkeeping,
-  type Library, type Photo
+  withPhotos, type Library, type Photo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -34,7 +34,7 @@ function photo(id: string): Photo {
 }
 
 function rome(): Library {
-  return createAlbum(addPhotos(emptyLibrary(), [photo('a')]), 'al1', 'Rome')
+  return createAlbum(withPhotos(emptyLibrary(), [photo('a')]), 'al1', 'Rome')
 }
 
 function exportName(lib: Library) {
@@ -114,8 +114,8 @@ describe('bookkeeping through undo and redo', () => {
   })
 
   it('keeps sizes found since, for the photos the library holds', () => {
-    const before = addPhotos(emptyLibrary(), [photo('a')])
-    const imported = addPhotos(before, [photo('b')])
+    const before = withPhotos(emptyLibrary(), [photo('a')])
+    const imported = withPhotos(before, [photo('b')])
     const sized = setPhotoSizes(imported, { a: 100, b: 200 })
     const h = recordChange(emptyHistory(), before, null, 0)
 
@@ -141,7 +141,7 @@ describe('bookkeeping through undo and redo', () => {
   })
 
   it('drops the record of an album an undo removes until redo', () => {
-    const before = addPhotos(emptyLibrary(), [photo('a')])
+    const before = withPhotos(emptyLibrary(), [photo('a')])
     const created = createAlbum(before, 'al1', 'Rome')
     const exported = setExportRecord(created, 'al1', FIRST)
     const h = recordChange(emptyHistory(), before, null, 0)

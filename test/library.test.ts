@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addPhotos, addToAlbum, albumsByName, createAlbum, deleteAlbum,
+  addToAlbum, albumsByName, createAlbum, deleteAlbum,
   emptyLibrary, emptyTrash, fixTaken, libraryCounts, migrate, moveInAlbum,
   pickLibrary, removeFromAlbum, renameAlbum, renamePhoto, renamePhotos,
   restorePhotos, setAlbumExportFolder, setAlbumExportName, setAlbumSort,
   setEdits, setLastImport, setMeta, setPhotoSizes, retime, toggleStars,
   trashPhotos, viewPhotos, albumSections, notInAlbums, draggedTrim,
-  markedTrim, MIN_TRIM, setTrim, trimRange, type Library, type Photo,
-  type Trim, type VideoInfo
+  markedTrim, MIN_TRIM, setTrim, trimRange, withPhotos, type Library,
+  type Photo, type Trim, type VideoInfo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -31,7 +31,7 @@ function photo(id: string, extra: Partial<Photo> = {}): Photo {
 
 function sample(): Library {
   const at = (day: string) => `2024-${day}T10:00:00`
-  const lib = addPhotos(emptyLibrary(), [
+  const lib = withPhotos(emptyLibrary(), [
     photo('a', { takenAt: at('03-01'), name: 'zebra.jpg', bytes: 300 }),
     photo('b', { takenAt: at('01-01'), name: 'apple.jpg', bytes: 100 }),
     photo('c', { takenAt: null, name: 'Mango.jpg', bytes: 400 }),
@@ -271,7 +271,7 @@ describe('trim', () => {
   const clip = (trim?: Trim): VideoInfo =>
     trim ? { duration: 10, ext: 'mp4', trim } : { duration: 10, ext: 'mp4' }
   const withClip = (trim?: Trim) =>
-    addPhotos(sample(), [photo('v', { video: clip(trim) })])
+    withPhotos(sample(), [photo('v', { video: clip(trim) })])
 
   it('plays the whole clip without a trim', () => {
     expect(trimRange(clip())).toEqual({ start: 0, end: 10 })
@@ -333,7 +333,7 @@ describe('trim', () => {
 
   it('cannot trim a clip shorter than the minimum', () => {
     const video: VideoInfo = { duration: 0.5, ext: 'mp4' }
-    const lib = addPhotos(sample(), [photo('v', { video })])
+    const lib = withPhotos(sample(), [photo('v', { video })])
     const trims = [
       draggedTrim(video, 'start', 0.2), draggedTrim(video, 'end', 0.3),
       markedTrim(video, 'start', 0.2), markedTrim(video, 'end', 0.3)
@@ -352,7 +352,7 @@ describe('last import', () => {
 
   it('returns the library itself when an import brings nothing', () => {
     const lib = sample()
-    expect(addPhotos(lib, [])).toBe(lib)
+    expect(withPhotos(lib, [])).toBe(lib)
     expect(setLastImport(lib, [])).toBe(lib)
     expect(restorePhotos(lib, [])).toBe(lib)
   })
@@ -392,7 +392,7 @@ describe('in albums', () => {
 })
 
 describe('retime', () => {
-  const undated = () => addPhotos(sample(), [
+  const undated = () => withPhotos(sample(), [
     photo('u1'), photo('u2'), photo('u3')
   ])
   const times = (lib: Library, ids: string[]) =>
@@ -428,7 +428,7 @@ describe('retime', () => {
 })
 
 describe('fixTaken', () => {
-  const clips = () => addPhotos(sample(), [
+  const clips = () => withPhotos(sample(), [
     photo('v1', { takenAt: '2026-11-02T06:51:41' }),
     photo('v2', { takenAt: '2026-11-02T05:24:09' })
   ])
@@ -469,7 +469,7 @@ describe('fixTaken', () => {
 
 describe('setMeta', () => {
   const rome = { lat: 41.9, lon: 12.5 }
-  const tagged = () => addPhotos(sample(), [
+  const tagged = () => withPhotos(sample(), [
     photo('m1', { meta: { title: 'Old', author: 'Ann', location: rome } }),
     photo('m2', { meta: { title: 'Other', keywords: ['sea'] } })
   ])
