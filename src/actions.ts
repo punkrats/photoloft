@@ -11,8 +11,9 @@ import { emptyHistory } from './history'
 import { importEntries } from './importer'
 import {
   addToAlbum, createAlbum, deleteAlbum, emptyTrash, removeFromAlbum,
-  notInAlbums, renameAlbum, renamePhoto, restorePhotos, setAlbumSort,
-  retime, setMeta, setPhotoSizes, toggleStars, trashPhotos, type AlbumSort
+  notInAlbums, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
+  setAlbumSort, retime, setMeta, setPhotoSizes, toggleStars, trashPhotos,
+  type AlbumSort
 } from './library'
 import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
@@ -27,7 +28,8 @@ import {
 } from './storage'
 import { localIso } from './mp4'
 import {
-  dateChange, infoChange, newInfoForm, pickerAdd, toggledTicks
+  dateChange, infoChange, newInfoForm, newRename, pickerAdd, renameNames,
+  toggledTicks
 } from './ui/dialogs'
 
 type Data = DOMStringMap
@@ -254,6 +256,41 @@ function applyInfo(state: AppState) {
   showToast(state, `Updated the info of ${count}. Ctrl+Z undoes it.`)
 }
 
+function openRenameDialog(state: AppState) {
+  const ids = targets(state)
+  if (!ids.length || state.view.kind === 'trash') return
+
+  state.dialog = newRename(state.library!, ids, currentAlbum(state))
+}
+
+// Types the placeholder over the field's selection, which the field
+// keeps while the button has focus, and leaves the cursor after it.
+function insertToken(state: AppState, token: string) {
+  const d = state.dialog
+  const field = state.root
+    .querySelector<HTMLInputElement>('[data-dialog] [data-field="pattern"]')
+  if (d?.kind !== 'rename' || !field) return
+
+  const { selectionStart, selectionEnd } = field
+  const end = field.value.length
+  field.focus()
+  field.setRangeText(token, selectionStart ?? end, selectionEnd ?? end, 'end')
+  state.dialog = { ...d, pattern: field.value }
+}
+
+// One change for all the photos; one that renames none records nothing.
+function applyRename(state: AppState) {
+  const d = state.dialog
+  if (d?.kind !== 'rename' || !state.library || !d.pattern.trim()) return
+
+  const names = renameNames(state.library, d)
+  const named = Object.fromEntries(d.ids.map((id, i) => [id, names[i]]))
+  state.dialog = null
+  commit(state, renamePhotos(state.library, named))
+  const count = `${d.ids.length} ${plural(d.ids.length)}`
+  showToast(state, `Renamed ${count}.`)
+}
+
 function trashUnalbumed(state: AppState) {
   const lib = state.library!
   const ids = notInAlbums(lib, viewIds(state))
@@ -408,6 +445,9 @@ export const clicks: Record<string, Handler> = {
   'apply-date': state => applyDate(state),
   'open-info': state => openInfoDialog(state),
   'apply-info': state => applyInfo(state),
+  'open-rename': state => openRenameDialog(state),
+  'rename-insert': (state, data) => insertToken(state, data.token!),
+  'apply-rename': state => applyRename(state),
   'info-search': state => void searchPlace(state),
   'info-place': (state, data) => pickPlace(state, Number(data.index)),
   'info-remove-location': state => {
@@ -519,6 +559,7 @@ export function input(state: AppState, el: HTMLInputElement) {
     render(state)
   }
   if (kind === 'info-text' || kind === 'info-query') infoInput(state, el)
+  if (kind === 'rename-field') renameField(state, el)
 }
 
 function infoInput(state: AppState, el: HTMLInputElement) {
@@ -527,6 +568,16 @@ function infoInput(state: AppState, el: HTMLInputElement) {
 
   if (el.dataset.input === 'info-query') form.query = el.value
   else form.text[el.dataset.field as InfoField] = el.value
+  render(state)
+}
+
+function renameField(state: AppState, el: HTMLInputElement) {
+  const d = state.dialog
+  if (d?.kind !== 'rename') return
+
+  state.dialog = el.dataset.field === 'start'
+    ? { ...d, start: Number(el.value) || 0 }
+    : { ...d, pattern: el.value }
   render(state)
 }
 

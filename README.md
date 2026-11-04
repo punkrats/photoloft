@@ -43,6 +43,14 @@ Photoloft keeps imported photos, edits and albums in its hidden
   sidebar adds it there. An album holds each photo once: the toast
   counts the photos that went in, and an add that finds them all in
   place changes nothing and says so. One Ctrl+Z undoes the whole add.
+- Rename (`R`) renames the selection, or the photo shown in the
+  editor. The name may hold `{number}` (counted in the order shown
+  from Start at, three digits or more), `{date}` and `{time}` (when
+  taken, else when imported), and `{name}` (the photo's own name); the
+  Insert buttons type them at the cursor. Each photo keeps its
+  extension, equal names get -2, -3, and a preview shows the first and
+  last name. One Ctrl+Z undoes it. Double-clicking the name in the
+  editor still renames that photo in place.
 - In every dialog Enter presses the main button (the place search keeps
   Enter for its search), Esc cancels, Up / Down and Tab move between
   fields, and Space ticks a tick box or presses a button.

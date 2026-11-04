@@ -48,6 +48,11 @@
   rows a key and move focus back after the render.
 - Leaflet gives its map container `tabindex="0"` and pans on the arrow
   keys while it has focus.
+- A text input keeps its selection while a button it lost focus to is
+  pressed, and `focus()` from script brings that selection back. A
+  button can therefore type into the field at the cursor with
+  `setRangeText(text, start, end, 'end')`, which fires no `input`
+  event.
 
 - Chromium applies a video's rotation flag in `videoWidth/Height` and
   in `createImageBitmap(video)`; feeding frames as ImageBitmaps keeps
@@ -69,7 +74,9 @@
 - `expect(await locator.allTextContents()).toEqual(...)` does not wait
   for the next frame; use `await expect(locator).toHaveText([...])`.
 - Wait for the sidebar's `[data-saved="true"]` before reloading in a
-  test, otherwise the last changes may still be unsaved.
+  test, otherwise the last changes may still be unsaved. The editor
+  hides the sidebar, so there wait with `toHaveAttribute('data-saved',
+  'true')` on `.sidebar-folder`; a visibility wait never passes.
 - To show that an action saves nothing, wait for `saved` first, then
   read `data-saved` once with `getAttribute` right after the action.
   `toHaveAttribute` retries and passes once a scheduled save ends.

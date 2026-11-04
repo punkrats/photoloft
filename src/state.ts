@@ -71,6 +71,7 @@ export type Dialog =
   | { kind: 'help' }
   | { kind: 'date', ids: string[], reference: string, value: string }
   | { kind: 'info', form: InfoForm }
+  | { kind: 'rename', ids: string[], pattern: string, start: number }
 
 export type Progress = {
   label: string

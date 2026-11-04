@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { emptyLibrary, migrate } from '../src/library'
 import type { AlbumPick, Picker } from '../src/state'
-import { pickerAdd, pickerRows, toggledTicks } from '../src/ui/dialogs'
+import {
+  newRename, pickerAdd, pickerRows, renameNames, toggledTicks
+} from '../src/ui/dialogs'
 
 // Keepers holds both photos asked about, Rome one of them, Atlantic
 // none.
@@ -118,5 +120,36 @@ describe('pickerAdd', () => {
   it('adds nothing for an existing album name, case ignored', () => {
     expect(add('rome', [{ id: 'atl' }])).toEqual({ picks: [], taken: 'Rome' })
     expect(add(' keepers ')).toEqual({ picks: [], taken: 'Keepers' })
+  })
+})
+
+describe('newRename', () => {
+  const rome = LIB.albums[0]
+
+  it('fills in the one photo name without its extension', () => {
+    expect(newRename(LIB, ['b'], rome)).
+      toEqual({ kind: 'rename', ids: ['b'], pattern: 'b', start: 1 })
+  })
+
+  it('numbers several photos after the open album', () => {
+    expect(newRename(LIB, ['b', 'a'], rome).pattern).toBe('Rome-{number}')
+  })
+
+  it('keeps each name of several photos elsewhere', () => {
+    expect(newRename(LIB, ['b', 'a'], null).pattern).toBe('{name}')
+  })
+})
+
+describe('renameNames', () => {
+  const rename = (pattern: string, start: number) =>
+    renameNames(LIB, { kind: 'rename', ids: ['b', 'a'], pattern, start })
+
+  it('names the photos in the order of the dialog', () => {
+    expect(rename('{name}-{number}', 1)).toEqual(['b-001.jpg', 'a-002.jpg'])
+  })
+
+  it('rounds the start and keeps it at 0 or more', () => {
+    expect(rename('{number}', 2.6)).toEqual(['003.jpg', '004.jpg'])
+    expect(rename('{number}', -4)).toEqual(['000.jpg', '001.jpg'])
   })
 })

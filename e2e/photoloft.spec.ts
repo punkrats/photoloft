@@ -1282,3 +1282,232 @@ test('dates photos that had none, keeping their order', async ({ page }) => {
   const bytes = await readFile(page, file)
   expect(exifTags(bytes).get('exif.0x9003')).toBe('2023:12:31 23:59:00')
 })
+
+// ─── Rename ──────────────────────────────────────────────────────────
+
+function renameField(page: Page) {
+  return page.locator('.dialog [data-field="pattern"]')
+}
+
+function chip(page: Page, name: string) {
+  return page.locator('.dialog').getByRole('button', { name, exact: true })
+}
+
+async function cursor(page: Page) {
+  return renameField(page).evaluate((el: HTMLInputElement) => {
+    return [el.selectionStart, el.selectionEnd]
+  })
+}
+
+test('renames the selection with placeholders', async ({ page }) => {
+  const order = ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg', 'clip.mp4']
+  const dialog = page.locator('.dialog')
+  const field = renameField(page)
+  const start = dialog.locator('[data-field="start"]')
+  const preview = dialog.locator('.form-note')
+  await openLibrary(page)
+  await importPhotos(page, order)
+  await expect(names(page)).toHaveText(order)
+
+  // With nothing selected R opens nothing, so ? still opens the list.
+  await page.keyboard.press('r')
+  await page.keyboard.press('?')
+  await expect(page.locator('.dialog-title')).toHaveText('Keyboard shortcuts')
+  await page.keyboard.press('Escape')
+
+  // Several photos elsewhere keep their names, selected so typing
+  // replaces them; Start at waits for a number.
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('r')
+  await expect(page.locator('.dialog-title')).toHaveText('Rename 4 photos')
+  await expect(field).toBeFocused()
+  await expect(field).toHaveValue('{name}')
+  await expect(preview).toHaveText('e2e-a.jpg to clip.mp4')
+  await expect(start).toHaveCount(0)
+  await page.keyboard.type('Trip ')
+  await expect(field).toHaveValue('Trip ')
+
+  // Insert types at the cursor and hands the field back.
+  await chip(page, 'Number').click()
+  await expect(field).toHaveValue('Trip {number}')
+  await expect(field).toBeFocused()
+  expect(await cursor(page)).toEqual([13, 13])
+  await expect(start).toHaveValue('1')
+  await expect(preview).toHaveText('Trip 001.jpg to Trip 004.mp4')
+
+  // Numbers count from Start at in the order shown; Enter renames.
+  await start.fill('9')
+  await expect(preview).toHaveText('Trip 009.jpg to Trip 012.mp4')
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(page.locator('.toast')).toHaveText('Renamed 4 photos.')
+  await expect(names(page)).toHaveText([
+    'Trip 009.jpg', 'Trip 010.jpg', 'Trip 011.jpg', 'Trip 012.mp4'
+  ])
+
+  // One Ctrl+Z takes the whole rename back.
+  await page.keyboard.press('Control+z')
+  await expect(names(page)).toHaveText(order)
+})
+
+test('fills in dates, times and names, typed or inserted', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const field = renameField(page)
+  const preview = dialog.locator('.form-note')
+  const rename = dialog.getByRole('button', { name: 'Rename' })
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
+  await page.keyboard.press('r')
+  await expect(field).toBeFocused()
+
+  await page.keyboard.press('End')
+  await page.keyboard.type('_')
+  await chip(page, 'Time').click()
+  await expect(field).toHaveValue('{name}_{time}')
+  await expect(preview).
+    toHaveText('e2e-a_10-00-00.jpg to e2e-b_10-00-00.jpg')
+
+  // Over a selection the token replaces it.
+  await field.evaluate((el: HTMLInputElement) => el.setSelectionRange(0, 6))
+  await chip(page, 'Date').click()
+  await expect(field).toHaveValue('{date}_{time}')
+  await expect(field).toBeFocused()
+  expect(await cursor(page)).toEqual([6, 6])
+  await expect(preview).
+    toHaveText('2024-01-01_10-00-00.jpg to 2024-01-02_10-00-00.jpg')
+
+  // Typed by hand they work the same; equal names get -2, and unknown
+  // braces stay.
+  await field.fill('{time}')
+  await expect(preview).toHaveText('10-00-00.jpg to 10-00-00-2.jpg')
+  await field.fill('{foo}')
+  await expect(preview).toHaveText('{foo}.jpg to {foo}-2.jpg')
+
+  // A blank name greys Rename, and Enter leaves the dialog open.
+  await field.fill('  ')
+  await expect(rename).toBeDisabled()
+  await expect(preview).toHaveCount(0)
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeVisible()
+
+  // Down reaches the Insert buttons; Enter on one inserts.
+  await field.fill('')
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown')
+  await expect(chip(page, 'Original name')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(field).toHaveValue('{name}')
+  await expect(field).toBeFocused()
+  await expect(rename).toBeEnabled()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(names(page)).toHaveText(['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+})
+
+test('renames in an album and in the editor', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const title = page.locator('.dialog-title')
+  const field = renameField(page)
+  const toast = page.locator('.toast')
+  const name = page.locator('.editor-name')
+  const folder = page.locator('.sidebar-folder')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Moorea')
+  await page.locator('.nav-item', { hasText: 'Moorea' }).click()
+
+  // Several photos in an album get its name and a number.
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('r')
+  await expect(field).toHaveValue('Moorea-{number}')
+  await expect(dialog.locator('.form-note')).
+    toHaveText('Moorea-001.jpg to Moorea-003.jpg')
+  await page.keyboard.press('Enter')
+  await expect(toast).toHaveText('Renamed 3 photos.')
+  await expect(names(page)).
+    toHaveText(['Moorea-001.jpg', 'Moorea-002.jpg', 'Moorea-003.jpg'])
+
+  // One photo starts from its name without the extension.
+  await cell(page, 'Moorea-002.jpg').click()
+  await page.keyboard.press('r')
+  await expect(title).toHaveText('Rename 1 photo')
+  await expect(field).toHaveValue('Moorea-002')
+  await expect(dialog.locator('.form-note')).toHaveText('Moorea-002.jpg')
+  await page.keyboard.press('Escape')
+
+  // R in the editor renames the photo shown.
+  await cell(page, 'Moorea-001.jpg').dblclick()
+  await expect(name).toHaveText('Moorea-001.jpg')
+  await page.keyboard.press('r')
+  await expect(title).toHaveText('Rename 1 photo')
+  await expect(field).toBeFocused()
+  await page.keyboard.type('Beach')
+  await page.keyboard.press('Enter')
+  await expect(name).toHaveText('Beach.jpg')
+  await expect(toast).toHaveText('Renamed 1 photo.')
+
+  // A rename that changes no name saves nothing, and Ctrl+Z takes back
+  // the rename before. The editor hides the sidebar, so the save flag
+  // is read as an attribute.
+  await expect(folder).toHaveAttribute('data-saved', 'true')
+  await dismissToast(page)
+  await page.keyboard.press('r')
+  await expect(field).toHaveValue('Beach')
+  await page.keyboard.press('Enter')
+  await expect(toast).toHaveText('Renamed 1 photo.')
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(name).toHaveText('Moorea-001.jpg')
+})
+
+// The description the shortcut list gives a key.
+function shortcut(page: Page, keys: string) {
+  const hasText = new RegExp(`^${keys}$`)
+  const term = page.locator('.shortcuts dt', { hasText })
+  return term.locator('xpath=following-sibling::dd[1]')
+}
+
+test('moves crop and straighten to C', async ({ page }) => {
+  const app = page.locator('.app')
+  const title = page.locator('.dialog-title')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await expect(page.getByTitle('Crop and straighten (C)')).toBeVisible()
+
+  // R in the crop tool does nothing, so C still leaves it.
+  await page.keyboard.press('c')
+  await expect(app).toHaveAttribute('data-mode', 'crop')
+  await page.keyboard.press('r')
+  await page.keyboard.press('c')
+  await expect(app).toHaveAttribute('data-mode', 'edit')
+  await expect(page.locator('.dialog')).toBeHidden()
+
+  await page.keyboard.press('?')
+  await expect(shortcut(page, 'C')).toHaveText('Crop and straighten')
+  await expect(shortcut(page, 'R')).
+    toHaveText('Rename the selection or the open photo')
+  await page.keyboard.press('Escape')
+
+  // In the Trash R opens nothing, in the grid or the editor.
+  await page.keyboard.press('Escape')
+  await expect(app).toHaveAttribute('data-mode', 'grid')
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('Delete')
+  await page.locator('.nav-item', { hasText: 'Trash' }).click()
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('r')
+  await page.keyboard.press('?')
+  await expect(title).toHaveText('Keyboard shortcuts')
+  await page.keyboard.press('Escape')
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.editor-name')).toHaveText('e2e-a.jpg')
+  await page.keyboard.press('r')
+  await page.keyboard.press('?')
+  await expect(title).toHaveText('Keyboard shortcuts')
+})

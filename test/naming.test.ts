@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  albumFileNames, originalFileNames, previewNames, sanitizeName,
-  withExtension
+  albumFileNames, originalFileNames, previewNames, renamedNames,
+  sanitizeName, splitExtension, withExtension
 } from '../src/naming'
 
 describe('sanitizeName', () => {
@@ -85,5 +85,71 @@ describe('withExtension', () => {
 
   it('adds one when missing', () => {
     expect(withExtension('clip', 'mp4')).toBe('clip.mp4')
+  })
+})
+
+describe('splitExtension', () => {
+  it('splits at the last dot', () => {
+    expect(splitExtension('Rome.2026.JPG')).toEqual(['Rome.2026', '.JPG'])
+  })
+
+  it('finds none without a dot, or with only a leading one', () => {
+    expect(splitExtension('Beach')).toEqual(['Beach', ''])
+    expect(splitExtension('.hidden')).toEqual(['.hidden', ''])
+  })
+})
+
+describe('renamedNames', () => {
+  const photo = (name: string, takenAt: string | null = null) =>
+    ({ name, takenAt, importedAt: '' })
+  const three = [photo('a.jpg'), photo('b.jpg'), photo('c.jpg')]
+
+  it('numbers in the order given, padded as album exports', () => {
+    expect(renamedNames('Moorea-{number}', three, 1)).
+      toEqual(['Moorea-001.jpg', 'Moorea-002.jpg', 'Moorea-003.jpg'])
+    expect(renamedNames('{number}', three.slice(0, 2), 999)).
+      toEqual(['0999.jpg', '1000.jpg'])
+  })
+
+  it('writes the capture date and time', () => {
+    const photos = [photo('a.jpg', '2026-11-03T14:30:05')]
+    expect(renamedNames('{date} {time}', photos, 1)).
+      toEqual(['2026-11-03 14-30-05.jpg'])
+  })
+
+  it('falls back to the import time, read in local time', () => {
+    const importedAt = new Date(2026, 10, 3, 14, 30, 5).toISOString()
+    const photos = [{ name: 'a.jpg', takenAt: null, importedAt }]
+    expect(renamedNames('{date}_{time}', photos, 1)).
+      toEqual(['2026-11-03_14-30-05.jpg'])
+  })
+
+  it('leaves date and time empty without either time', () => {
+    expect(renamedNames('x{date}{time}', [photo('a.jpg')], 1)).
+      toEqual(['x.jpg'])
+  })
+
+  it('gives each photo its own extension back', () => {
+    const photos = [photo('IMG_1.JPG'), photo('clip.MOV'), photo('Beach')]
+    expect(renamedNames('{name}-{number}', photos, 1)).
+      toEqual(['IMG_1-001.JPG', 'clip-002.MOV', 'Beach-003'])
+  })
+
+  it('cleans characters unsafe in file names', () => {
+    expect(renamedNames(' a/b:{name} ', [photo('c*d.jpg')], 1)).
+      toEqual(['a-b-c-d.jpg'])
+  })
+
+  it('suffixes equal names, case ignored', () => {
+    const photos = [photo('a.jpg'), photo('b.JPG'), photo('c')]
+    expect(renamedNames('Trip', photos, 1)).
+      toEqual(['Trip.jpg', 'Trip-2.JPG', 'Trip'])
+    expect(renamedNames('Trip', [photo('a'), photo('b')], 1)).
+      toEqual(['Trip', 'Trip-2'])
+  })
+
+  it('leaves other braces as typed', () => {
+    expect(renamedNames('{foo}-{Name}-{name}', [photo('a.jpg')], 1)).
+      toEqual(['{foo}-{Name}-a.jpg'])
   })
 })

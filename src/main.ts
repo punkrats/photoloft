@@ -361,6 +361,10 @@ function gridKey(state: AppState, key: string) {
     clicks['open-picker'](state, {}, new Event('key'))
     return true
   }
+  if (key === 'r' && state.selection.size) {
+    clicks['open-rename'](state, {}, new Event('key'))
+    return true
+  }
   if (key === 'Delete' || key === 'Backspace') {
     removeSelection(state)
     return true
@@ -386,6 +390,12 @@ function editorKey(state: AppState, key: string) {
     s: () => clicks.star(state, {}, new Event('key')),
     '\\': () => {
       state.before = !state.before
+    },
+
+    // R renames the photo shown; in the crop tool it does nothing.
+    r: () => {
+      if (state.mode !== 'edit') return
+      clicks['open-rename'](state, {}, new Event('key'))
     },
 
     // Space leaves the editor on a photo and plays or pauses a video;

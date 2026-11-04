@@ -4,10 +4,13 @@ import { live } from 'lit-html/directives/live.js'
 import { formatShift, formatTaken } from '../format'
 import { closeView, formatLocation, WORLD_VIEW } from '../geo'
 import {
-  albumsByName, retime, setMeta, viewPhotos, type Library, type MetaChange
+  albumsByName, retime, setMeta, viewPhotos, type Album, type Library,
+  type MetaChange
 } from '../library'
 import type { Meta } from '../meta'
-import { albumFileNames, sanitizeName } from '../naming'
+import {
+  albumFileNames, previewNames, renamedNames, sanitizeName, splitExtension
+} from '../naming'
 import {
   targets, type AlbumPick, type AppState, type Dialog, type ExportForm,
   type InfoField, type InfoForm, type Picker
@@ -44,6 +47,7 @@ const SHORTCUTS: [string, string][] = [
   ['Drag on empty space', 'Select with a rectangle'],
   ['Ctrl+A, Esc', 'Select all, clear selection'],
   ['G', 'Add the selection or the open photo to an album'],
+  ['R', 'Rename the selection or the open photo'],
   ['Enter / Esc', 'In a dialog: confirm / cancel'],
   ['Up / Down, Tab', 'In a dialog: next or previous field'],
   ['Space on a tick box', 'Tick or untick'],
@@ -78,6 +82,7 @@ function body(state: AppState, lib: Library, d: Dialog) {
   if (d.kind === 'help') return help()
   if (d.kind === 'date') return dateForm(lib, d)
   if (d.kind === 'info') return info(state, lib, d.form)
+  if (d.kind === 'rename') return renameForm(lib, d)
 
   return html`
     <h3 class="dialog-title">${d.message}</h3>
@@ -365,14 +370,16 @@ function segment(on: boolean, value: string, label: string) {
   `
 }
 
-function numberField(field: string, value: number, unit: string) {
+function numberField(
+  field: string, value: number, unit: string, input = 'export-field'
+) {
   return html`
     <input
       class="input input-number"
       type="number"
       min="1"
       .value=${live(String(value))}
-      data-input="export-field"
+      data-input=${input}
       data-field=${field}
     >
     ${unit ? html`<span class="form-unit">${unit}</span>` : nothing}
@@ -463,6 +470,93 @@ function dateNotes(c: ReturnType<typeof dateChange>) {
     notes.push(`Earliest ${first}, latest ${last}.`)
   }
   return notes
+}
+
+// ─── Rename ──────────────────────────────────────────────────────────
+
+type RenameDialog = Extract<Dialog, { kind: 'rename' }>
+
+const TOKENS: [string, string][] = [
+  ['{number}', 'Number'],
+  ['{date}', 'Date'],
+  ['{time}', 'Time'],
+  ['{name}', 'Original name']
+]
+
+// The field starts with the name of one photo; several get the open
+// album's name and a number, or elsewhere keep their own names.
+export function newRename(
+  lib: Library, ids: string[], album: Album | null
+): RenameDialog {
+  const [stem] = splitExtension(lib.photos[ids[0]].name)
+  const several = album ? `${album.name}-{number}` : '{name}'
+  const pattern = ids.length === 1 ? stem : several
+  return { kind: 'rename', ids, pattern, start: 1 }
+}
+
+// The names Rename gives the photos, in the dialog's order. Start at is
+// read as the export reads it.
+export function renameNames(lib: Library, d: RenameDialog) {
+  const photos = d.ids.map(id => lib.photos[id])
+  const start = Math.max(0, Math.round(d.start))
+  return renamedNames(d.pattern, photos, start)
+}
+
+function renameForm(lib: Library, d: RenameDialog) {
+  const n = d.ids.length
+  const blank = !d.pattern.trim()
+  const names = renameNames(lib, d)
+  const { first, last } = previewNames(names)
+  const preview = n > 1 ? `${first} to ${last}` : first
+
+  return html`
+    <h3 class="dialog-title">Rename ${n} ${n === 1 ? 'photo' : 'photos'}</h3>
+    <div class="form">
+      <label class="form-row">
+        <span class="form-label">Name</span>
+        <input
+          class="input"
+          .value=${live(d.pattern)}
+          data-input="rename-field"
+          data-field="pattern"
+          data-autofocus
+        >
+      </label>
+      <div class="form-row">
+        <span class="form-label">Insert:</span>
+        <div class="chips">
+          ${TOKENS.map(([token, label]) => html`
+            <button
+              class="chip"
+              data-action="rename-insert"
+              data-token=${token}
+            >
+              ${label}
+            </button>
+          `)}
+        </div>
+      </div>
+      ${d.pattern.includes('{number}')
+        ? html`
+          <label class="form-row">
+            <span class="form-label">Start at</span>
+            ${numberField('start', d.start, '', 'rename-field')}
+          </label>
+        `
+        : nothing}
+      ${blank ? nothing : html`<p class="form-note">${preview}</p>`}
+    </div>
+    <div class="dialog-buttons">
+      <button class="button" data-action="close-dialog">Cancel</button>
+      <button
+        class="button primary"
+        data-action="apply-rename"
+        ?disabled=${blank}
+      >
+        Rename
+      </button>
+    </div>
+  `
 }
 
 // ─── Info ────────────────────────────────────────────────────────────
