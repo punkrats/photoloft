@@ -81,6 +81,11 @@
 - The native folder picker cannot be driven; stub
   `window.showDirectoryPicker` with an OPFS directory in
   `page.addInitScript`. OPFS handles have the same API.
+- An icon font's glyph is part of a button's accessible name
+  (" Export"), so `getByRole('button', { name: 'Export', exact: true })`
+  misses it. Without `exact` the name matches as a substring, also the
+  title of an icon-only button ("Export all albums"); a `data-action`
+  locator picks the one button meant.
 - `expect(await locator.allTextContents()).toEqual(...)` does not wait
   for the next frame; use `await expect(locator).toHaveText([...])`.
 - Wait for the sidebar's `[data-saved="true"]` before reloading in a

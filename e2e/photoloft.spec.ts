@@ -196,7 +196,7 @@ async function pickAlbum(page: Page, name: string) {
 
 async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
   await dismissToast(page)
-  await page.getByRole('button', { name: 'Export' }).first().click()
+  await page.locator('[data-action="export-album"]').click()
   await expect(page.locator('.dialog')).toBeVisible()
   await setup(page)
   await page.locator('.dialog').getByRole('button', { name: 'Export' }).click()
@@ -1531,6 +1531,7 @@ test('dates photos that had none, keeping their order', async ({ page }) => {
   await cell(page, 'zero-date.jpg').click({ modifiers: ['Shift'] })
   await page.getByRole('button', { name: 'Adjust date' }).click()
   const dialog = page.locator('.dialog')
+
   // The time entered is the first selected one's; the rest count
   // forward from it.
   await expect(dialog).toContainText('plain.jpg has no date')
