@@ -240,9 +240,10 @@ export function viewIds(state: AppState) {
   return ids
 }
 
-// Selected ids in the order they appear in the view.
+// Selected ids in the order they appear in the view, each once: the In
+// albums view shows a photo once per album holding it.
 export function selectedIds(state: AppState) {
-  return viewIds(state).filter(id => state.selection.has(id))
+  return [...new Set(viewIds(state))].filter(id => state.selection.has(id))
 }
 
 // The photos an action applies to: the one shown in the editor, else

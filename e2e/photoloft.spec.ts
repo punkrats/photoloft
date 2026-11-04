@@ -1119,6 +1119,13 @@ test('lists the photos of every album on one page', async ({ page }) => {
     'e2e-b.jpg', 'e2e-c.jpg', 'e2e-a.jpg', 'e2e-b.jpg'
   ])
 
+  // e2e-b shows in both albums and counts once.
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await expect(page.locator('.dialog-title')).
+    toHaveText('Add 3 photos to albums')
+  await page.keyboard.press('Escape')
+
   await page.locator('.grid-header', { hasText: 'Rome' }).click()
   await expect(page.locator('.toolbar-heading')).toHaveText('Rome')
 })
