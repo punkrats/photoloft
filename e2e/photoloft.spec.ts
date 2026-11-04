@@ -170,9 +170,13 @@ async function meanColour(page: Page, path: string[]) {
   }, path)
 }
 
+// Closes the message showing, if any. Finding and clicking it happen in
+// one step in the page, as a message also closes by itself after 5 s.
 async function dismissToast(page: Page) {
   const toast = page.locator('.toast')
-  if (await toast.isVisible()) await toast.click()
+  await toast.evaluateAll((found: HTMLElement[]) => {
+    found.forEach(el => el.click())
+  })
   await expect(toast).toBeHidden()
 }
 

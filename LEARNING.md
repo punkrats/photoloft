@@ -139,6 +139,10 @@
   hidden one alike.
 - Toasts sit over the bottom of the editor, the video's play bar
   included; dismiss them before pointer work there.
+- A toast closes by itself after 5 s. `isVisible()` followed by
+  `click()` can find it and then miss it: the click waits for a toast
+  that never comes, until the test times out. Click it from
+  `evaluateAll` in the page, which checks and clicks in one step.
 - `toHaveCSS('--name', value)` reads custom properties too.
 - `test.use({ timezoneId: 'Pacific/Tahiti' })` inside a
   `test.describe` gives those tests' pages that zone, whatever the
