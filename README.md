@@ -5,6 +5,8 @@ import photos and videos, sort them into albums, fix colour, tone and
 angle, and export each album as named, size-limited files. Everything
 stays on your disk.
 
+![Photoloft's Starred view with one photo selected](docs/screenshot.jpg)
+
 ## Install
 
 Install Photoloft from source on Omarchy. Building needs Node.js; the
@@ -216,6 +218,7 @@ The package builds from the tag's tarball, so a change under
 - `packaging/aur/` holds the AUR recipe; `packaging/` the files the
   package installs besides the page and the server: the `photoloft`
   command, its user unit, desktop entry and icon
+- `docs/` holds the screenshot at the top of this README
 
 ## License
 
