@@ -1,5 +1,5 @@
 import {
-  commit, redoChange, replaceLibrary, scheduleSave, undoChange
+  applyBookkeeping, commit, redoChange, scheduleSave, undoChange
 } from './commit'
 import {
   autoCurrent, autoSelection, autoWhiteBalanceCurrent, closeEditor,
@@ -92,7 +92,7 @@ async function recordSizes(state: AppState) {
       // Missing original; nothing to record.
     }
   }
-  replaceLibrary(state, setPhotoSizes(state.library!, sizes))
+  applyBookkeeping(state, setPhotoSizes(state.library!, sizes))
 }
 
 // Clips whose header holds an Olympus camera's local clock reading were
@@ -349,8 +349,11 @@ async function emptyTheTrash(state: AppState) {
 
   const before = state.library
   const { library, removed } = emptyTrash(before)
+
+  // Files deleted for good cannot come back, so no undo reaches past
+  // this change.
+  commit(state, library)
   state.history = emptyHistory()
-  replaceLibrary(state, library)
   for (const id of removed) {
     const url = state.thumbs.get(id)
     if (url) URL.revokeObjectURL(url)

@@ -1,7 +1,9 @@
-import type { Library } from './library'
+import { withBookkeeping, type Library } from './library'
 
 // Library updates are immutable, so an undo entry is simply the
-// previous Library; unchanged photos and albums are shared.
+// previous Library; unchanged photos and albums are shared. Undo and
+// redo step through the user's changes only: the Library they bring
+// back takes the bookkeeping (`withBookkeeping`) of the one it replaces.
 export type History = {
   past: Library[]
   future: Library[]
@@ -25,8 +27,8 @@ export function recordChange(
 }
 
 export function undo(h: History, current: Library) {
-  const library = h.past.at(-1)
-  if (!library) return null
+  const snapshot = h.past.at(-1)
+  if (!snapshot) return null
 
   const history = {
     past: h.past.slice(0, -1),
@@ -34,12 +36,12 @@ export function undo(h: History, current: Library) {
     tag: null,
     at: 0
   }
-  return { history, library }
+  return { history, library: withBookkeeping(snapshot, current) }
 }
 
 export function redo(h: History, current: Library) {
-  const library = h.future[0]
-  if (!library) return null
+  const snapshot = h.future[0]
+  if (!snapshot) return null
 
   const history = {
     past: [...h.past, current],
@@ -47,5 +49,5 @@ export function redo(h: History, current: Library) {
     tag: null,
     at: 0
   }
-  return { history, library }
+  return { history, library: withBookkeeping(snapshot, current) }
 }

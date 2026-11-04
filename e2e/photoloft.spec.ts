@@ -320,6 +320,44 @@ test('imports, sorts into an album, edits and exports', async ({ page }) => {
   await expect(slider(page, 'Exposure')).toHaveText('1.00')
 })
 
+test('keeps what an export recorded through undo', async ({ page }) => {
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  const dialog = page.locator('.dialog')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome 2026')
+  await page.locator('[data-drop-album]', { hasText: 'Rome 2026' }).click()
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('s')
+  await expect(starred.locator('.nav-count')).toHaveText('1')
+
+  await exportAlbum(page, async () => {
+    await dialog.locator('.input').first().fill('Rome')
+    await page.locator('[data-field="size"]').selectOption('custom')
+    await page.locator('[data-field="customSize"]').fill('200')
+  })
+  expect(await listFiles(page, EXPORTS)).
+    toEqual(['Rome-001.jpg', 'Rome-002.jpg', 'Rome-003.jpg'])
+
+  // Ctrl+Z takes back the star only: the dialog keeps its choices, and
+  // the next export still replaces the files of this one.
+  await page.keyboard.press('Control+z')
+  await expect(starred.locator('.nav-count')).toHaveText('')
+  await cell(page, 'e2e-c.jpg').click()
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.cell')).toHaveCount(2)
+  await exportAlbum(page, async () => {
+    await expect(dialog.locator('.input').first()).toHaveValue('Rome')
+    await expect(page.locator('[data-field="size"]')).toHaveValue('custom')
+    await expect(page.locator('[data-field="customSize"]')).
+      toHaveValue('200')
+  })
+  expect(await listFiles(page, EXPORTS)).
+    toEqual(['Rome-001.jpg', 'Rome-002.jpg'])
+})
+
 test('selects with a rectangle and runs Auto on it', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, PHOTOS)
@@ -403,6 +441,13 @@ test('trashes, undoes, restores and empties the trash', async ({ page }) => {
   await expect(page.locator('.toast')).toContainText('Deleted 1 photo for good')
   const originals = await listFiles(page, ['library', '.library', 'originals'])
   expect(originals).toHaveLength(1)
+
+  // Emptying cannot be undone. The help dialog draws after Ctrl+Z, so
+  // once it shows, the grid shows what Ctrl+Z left.
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('?')
+  await expect(page.locator('.dialog')).toBeVisible()
+  await expect(page.locator('.cell')).toHaveCount(0)
 })
 
 test('confirms with Enter and moves with Up and Down', async ({ page }) => {

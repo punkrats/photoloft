@@ -1,4 +1,4 @@
-import { replaceLibrary } from './commit'
+import { applyBookkeeping } from './commit'
 import { exportExif, insertSegment } from './exif'
 import { decode, encodeJpeg, offscreen, renderEdit } from './images'
 import {
@@ -80,7 +80,7 @@ export async function runExport(state: AppState, form: ExportForm) {
   if (form.albumIds.length === 1 && form.name.trim()) {
     lib = setAlbumExportName(lib, form.albumIds[0], form.name.trim())
   }
-  replaceLibrary(state, lib)
+  applyBookkeeping(state, lib)
   state.dialog = null
 
   const albums = form.albumIds
@@ -149,7 +149,7 @@ async function exportAlbum(
   }
 
   const record = { folder, files: written }
-  replaceLibrary(state, setExportRecord(state.library!, album.id, record))
+  applyBookkeeping(state, setExportRecord(state.library!, album.id, record))
   return { over, errors }
 }
 

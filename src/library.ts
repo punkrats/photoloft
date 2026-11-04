@@ -226,9 +226,11 @@ export function setTrim(lib: Library, id: string, trim: Trim | null) {
   return withPhotos(lib, [{ ...photo, video: { ...video, trim: kept } }])
 }
 
+// Ids the library lacks and sizes a photo has already are skipped, so
+// with nothing to change it returns `lib` itself.
 export function setPhotoSizes(lib: Library, sizes: Record<string, number>) {
   const photos = Object.entries(sizes)
-    .filter(([id]) => lib.photos[id])
+    .filter(([id, bytes]) => lib.photos[id] && lib.photos[id].bytes !== bytes)
     .map(([id, bytes]) => ({ ...lib.photos[id], bytes }))
   return withPhotos(lib, photos)
 }
@@ -433,8 +435,7 @@ export function setAlbumSort(lib: Library, id: string, sort: AlbumSort) {
 // renames its exports too.
 export function setAlbumExportName(lib: Library, id: string, name: string) {
   return mapAlbum(lib, id, a => {
-    const { exportName: _old, ...album } = a
-    return name === a.name ? album : { ...album, exportName: name }
+    return exportNamed(a, name === a.name ? undefined : name)
   })
 }
 
@@ -447,7 +448,41 @@ function mapAlbum(lib: Library, id: string, change: (a: Album) => Album) {
   return { ...lib, albums }
 }
 
-// ─── Export bookkeeping ──────────────────────────────────────────────
+// The album exporting under `name`, or under its own name without one.
+function exportNamed(album: Album, name: string | undefined): Album {
+  const { exportName: _old, ...rest } = album
+  return name === undefined ? rest : { ...rest, exportName: name }
+}
+
+// ─── Bookkeeping ─────────────────────────────────────────────────────
+
+// What Photoloft notes for itself beside the user's changes: the Export
+// dialog's settings, each album's export name and the files its last
+// export wrote, and the size of each original. Undo and redo keep the
+// latest of these. Gives `lib` the bookkeeping `from` holds for the
+// photos and albums `lib` has; with none different it returns `lib`.
+export function withBookkeeping(lib: Library, from: Library): Library {
+  const sizes = Object.fromEntries(
+    Object.values(from.photos).map(p => [p.id, p.bytes])
+  )
+  let next = setPhotoSizes(lib, sizes)
+  if (from.exportSettings !== lib.exportSettings) {
+    next = setExportSettings(next, from.exportSettings)
+  }
+
+  const sources = new Map(from.albums.map(a => [a.id, a]))
+  for (const album of lib.albums) {
+    const record = from.exports[album.id]
+    if (record && record !== lib.exports[album.id]) {
+      next = setExportRecord(next, album.id, record)
+    }
+    const source = sources.get(album.id)
+    if (source && source.exportName !== album.exportName) {
+      next = mapAlbum(next, album.id, a => exportNamed(a, source.exportName))
+    }
+  }
+  return next
+}
 
 export function setExportRecord(
   lib: Library, id: string, record: ExportRecord

@@ -1,5 +1,5 @@
 import { redo, undo } from './history'
-import type { Library } from './library'
+import { withBookkeeping, type Library } from './library'
 import { render } from './render'
 import { applyLibrary, showToast, viewIds, type AppState } from './state'
 import { saveLibrary } from './storage'
@@ -17,12 +17,16 @@ export function commit(
   if (before) afterChange(state, before)
 }
 
-// Bookkeeping changes (export settings and records) that undo should
-// not step through.
-export function replaceLibrary(state: AppState, next: Library) {
+// Takes the bookkeeping of `next` (`withBookkeeping`) and nothing else,
+// without an undo step; undo and redo keep it as it is.
+export function applyBookkeeping(state: AppState, next: Library) {
   const before = state.library
-  state.library = next
-  if (before) afterChange(state, before)
+  if (!before) return
+
+  const after = withBookkeeping(before, next)
+  if (after === before) return
+  state.library = after
+  afterChange(state, before)
 }
 
 export function undoChange(state: AppState) {

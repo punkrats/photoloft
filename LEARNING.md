@@ -153,9 +153,13 @@
   camera writes into moov/udta/TAGS; `ffprobe -show_entries
   format_tags=creation_time` prints `mvhd` as UTC. Comparing the two
   tells whether the camera wrote local time into `mvhd`.
-- Undo restores whole `Library` snapshots, so anything that must
-  survive an undo (the one-time repairs a library has had) is saved
-  beside the Library, in `Dirs` next to `seq`.
+- Undo restores whole `Library` snapshots, except for the bookkeeping
+  `withBookkeeping` in `src/library.ts` lists (export settings, export
+  names and records, photo sizes), which keeps its latest values. A
+  new field that undo must leave alone goes into that list and is set
+  with `applyBookkeeping`, which ignores anything outside the list.
+  The one-time repairs a library has had are saved beside the Library,
+  in `Dirs` next to `seq`.
 - ffmpeg's MP4 muxer writes `-metadata location=` only as a 3GPP
   `loci` box. Android and Google Photos read the QuickTime `©xyz`
   entry in moov/udta, which ffmpeg writes for MOV output only, so the
