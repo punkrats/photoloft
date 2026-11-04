@@ -262,13 +262,18 @@
 
 // ─── Filmstrip ───────────────────────────────────────────────────────
 
+// The height holds the tiles, their padding and a classic 15px
+// scrollbar, so it stays the same whether the scrollbar shows or not.
+// The tiles sit centred in the room the scrollbar leaves.
 .filmstrip {
   display: flex;
   flex: none;
+  align-items: safe center;
   gap: 6px;
   height: var(--filmstrip-height);
   padding: 6px var(--space-3);
   overflow-x: auto;
+  overflow-y: hidden;
   border-top: 1px solid var(--border);
   background: var(--surface);
 }

@@ -77,6 +77,27 @@ async function importFolder(page: Page, path: string[]) {
   await expect(page.locator('.toast')).toBeVisible()
 }
 
+// Writes `count` small photos of different colours, p000.jpg upwards,
+// into the folder `name` of the private file system.
+async function writeMany(page: Page, name: string, count: number) {
+  await page.evaluate(async ({ name, count }) => {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle(name, { create: true })
+    for (let i = 0; i < count; i++) {
+      const canvas = new OffscreenCanvas(32, 24)
+      const ctx = canvas.getContext('2d')!
+      ctx.fillStyle = `hsl(${i * 360 / count}, 60%, 50%)`
+      ctx.fillRect(0, 0, 32, 24)
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg' })
+      const file = `p${String(i).padStart(3, '0')}.jpg`
+      const handle = await dir.getFileHandle(file, { create: true })
+      const stream = await handle.createWritable()
+      await stream.write(blob)
+      await stream.close()
+    }
+  }, { name, count })
+}
+
 function slider(page: Page, label: string) {
   return page.locator('.slider', { hasText: label }).locator('output')
 }
@@ -626,22 +647,7 @@ test('takes keys pressed right after Esc as shortcuts', async ({ page }) => {
 
 test('shows every photo while scrolling a large library', async ({ page }) => {
   await openLibrary(page)
-  await page.evaluate(async () => {
-    const root = await navigator.storage.getDirectory()
-    const dir = await root.getDirectoryHandle('many', { create: true })
-    for (let i = 0; i < 60; i++) {
-      const canvas = new OffscreenCanvas(32, 24)
-      const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = `hsl(${i * 6}, 60%, 50%)`
-      ctx.fillRect(0, 0, 32, 24)
-      const blob = await canvas.convertToBlob({ type: 'image/jpeg' })
-      const name = `p${String(i).padStart(3, '0')}.jpg`
-      const handle = await dir.getFileHandle(name, { create: true })
-      const stream = await handle.createWritable()
-      await stream.write(blob)
-      await stream.close()
-    }
-  })
+  await writeMany(page, 'many', 60)
   await importFolder(page, ['many'])
   await expect(page.locator('.toast')).toContainText('Imported 60 photos')
   await page.locator('[data-change="sort"]').selectOption('name')
@@ -747,6 +753,70 @@ test('opens the selected photo in the editor with Space', async ({ page }) => {
   await expect(app).toHaveAttribute('data-mode', 'edit')
   await page.keyboard.press(' ')
   await expect(app).toHaveAttribute('data-mode', 'grid')
+})
+
+// Measures the editor's filmstrip: its height, the height its horizontal
+// scrollbar takes, how far its content reaches below the visible part,
+// and the tiles that stick out above or below the visible part.
+function filmstrip(page: Page) {
+  return page.locator('.filmstrip').evaluate((strip: HTMLElement) => {
+    const top = strip.getBoundingClientRect().top + strip.clientTop
+    const bottom = top + strip.clientHeight
+    const tiles = [...strip.querySelectorAll<HTMLElement>('.film-item')]
+    const outside = tiles.filter(tile => {
+      const box = tile.getBoundingClientRect()
+      return box.top < top || box.bottom > bottom
+    })
+    return {
+      height: strip.offsetHeight,
+      scrollbar: strip.offsetHeight - strip.clientTop - strip.clientHeight,
+      below: strip.scrollHeight - strip.clientHeight,
+      outside: outside.map(tile => tile.title)
+    }
+  })
+}
+
+// Headless Chromium hides scrollbars. This page comes from a second
+// browser with the configured launch options that shows them, as a
+// desktop browser does.
+const withScrollbars = test.extend<{ page: Page }>({
+  page: async ({ playwright, launchOptions, baseURL, viewport }, use) => {
+    const browser = await playwright.chromium.launch({
+      ...launchOptions,
+      ignoreDefaultArgs: ['--hide-scrollbars']
+    })
+    const page = await browser.newPage({ baseURL, viewport })
+    await use(page)
+    await browser.close()
+  }
+})
+
+withScrollbars('fits filmstrip tiles above one scrollbar', async ({ page }) => {
+  const strip = page.locator('.filmstrip')
+  const tiles = page.locator('.film-item')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(strip).toBeVisible()
+  await expect(tiles).toHaveCount(2)
+  const few = await filmstrip(page)
+  expect(few.scrollbar).toBe(0)
+  expect(few.outside).toEqual([])
+
+  // With enough photos to scroll, the strip keeps its height.
+  await page.keyboard.press('Escape')
+  await writeMany(page, 'many', 24)
+  await importFolder(page, ['many'])
+  await expect(page.locator('.toast')).toContainText('Imported 24 photos')
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(strip).toBeVisible()
+  await expect(tiles).toHaveCount(26)
+  const many = await filmstrip(page)
+  expect(many.scrollbar).toBeGreaterThan(0)
+  expect(many.below).toBeLessThanOrEqual(0)
+  expect(many.outside).toEqual([])
+  expect(many.height).toBe(few.height)
 })
 
 test('adds the photo shown in the editor to an album', async ({ page }) => {

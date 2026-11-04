@@ -113,6 +113,17 @@
 - Playwright checks a `<label>` for actionability through its control:
   clicking a label whose checkbox is disabled waits until the timeout.
   `click({ force: true })` shows what the user's click does.
+- Playwright starts headless Chromium with `--hide-scrollbars`, so
+  scrollbars take no room in tests. `Emulation.setScrollbarsHidden`
+  over CDP can only hide them, and `test.use({ launchOptions })` is
+  refused inside a describe. A fixture that launches a second browser
+  with `{ ...launchOptions, ignoreDefaultArgs: ['--hide-scrollbars'] }`
+  shows classic 15px scrollbars.
+- The editor stays in the page while the grid shows, hidden with
+  `display: none`; wait for it to be visible before measuring it.
+- A scrollbar takes its thickness out of the box's padding box, so a
+  strip of fixed height with `overflow-x: auto` loses that height
+  below its content, and its `overflow-y` computes to `auto` as well.
 
 ## Tooling
 
