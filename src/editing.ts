@@ -359,17 +359,26 @@ async function autoSample(dirs: Dirs, photo: Photo) {
   }
 }
 
+// A press on a photo that has this white balance already changes
+// nothing and records nothing; the toast for no cast still shows.
 export async function autoWhiteBalanceCurrent(state: AppState) {
+  const id = state.current
+  if (!id) return
+
   const sample = await currentSample(state)
-  if (!sample) return
+  const photo = currentPhoto(state)
+  if (!sample || photo?.id !== id) return
 
   const wb = autoWhiteBalance(sample)
-  endCoalescing(state)
-  changeCurrent(state, e => ({ ...e, ...wb }))
+  if (!hasSettings(photo.edit, wb)) {
+    endCoalescing(state)
+    changeCurrent(state, e => ({ ...e, ...wb }))
+  }
   if (wb.temperature === 0 && wb.tint === 0) {
     showToast(state, 'No colour cast found. Try the eyedropper on ' +
       'something that should be grey.')
   }
+  render(state)
 }
 
 async function currentSample(state: AppState) {

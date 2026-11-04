@@ -683,6 +683,51 @@ test('judges a video by its thumbnail frame', async ({ page }) => {
   await expect(shadows).not.toHaveText('30')
 })
 
+test('records white balance Auto only when it changes', async ({ page }) => {
+  const auto = page.locator('[data-action="auto"]')
+  const temperature = slider(page, 'Temperature')
+  const none = 'No colour cast found. Try the eyedropper on something ' +
+    'that should be grey.'
+
+  // The grey photo has no cast, so every press ends with the toast.
+  const balance = async () => {
+    await dismissToast(page)
+    await page.locator('[data-action="auto-wb"]').click()
+    await expect(page.locator('.toast')).toHaveText(none)
+  }
+
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await auto.click()
+  await expect(auto).toBeDisabled()
+
+  // On a neutral balance a press changes nothing; Auto stays greyed out.
+  await balance()
+  await expect(auto).toBeDisabled()
+
+  // From a warmer balance the first press neutralises it and the second
+  // changes nothing, so one Ctrl+Z gives the warmer balance back.
+  await page.locator('input[data-key="temperature"]').fill('40')
+  await expect(auto).toBeEnabled()
+  await balance()
+  await expect(temperature).toHaveText('0')
+  await expect(auto).toBeDisabled()
+  await balance()
+  await page.keyboard.press('Control+z')
+  await expect(temperature).toHaveText('40')
+  await expect(auto).toBeEnabled()
+
+  // Further back come the slider and Auto, with nothing in between.
+  await page.keyboard.press('Control+z')
+  await expect(temperature).toHaveText('0')
+  await expect(auto).toBeDisabled()
+  await page.keyboard.press('Control+z')
+  await expect(slider(page, 'Whites')).toHaveText('0')
+  await expect(auto).toBeEnabled()
+})
+
 test('crops to a square and rotates', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg'])
