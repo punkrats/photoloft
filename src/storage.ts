@@ -280,9 +280,10 @@ export function videoExt(name: string) {
 const CACHE_FOLDER = /^(thumbs|thumbnails?|previews|cache|@eadir)$|\.lrdata$/i
 
 // Walks dropped or picked entries and all their subfolders; returns
-// JPEG files and how many other files were skipped. Hidden files and
-// folders, other programs' thumbnail caches and the library folder
-// itself are left out. `progress.done` counts the photos found so far.
+// the JPEG and video files, and how many other files were skipped.
+// Hidden files and folders, other programs' thumbnail caches and the
+// library folder itself are left out. `progress.done` counts the files
+// found so far.
 export async function collectFiles(
   entries: (File | FileSystemHandle)[],
   library: FileSystemDirectoryHandle,

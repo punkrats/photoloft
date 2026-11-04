@@ -897,6 +897,14 @@ test('imports a folder with all its subfolders, once', async ({ page }) => {
   await expect(page.locator('.cell')).toHaveCount(3)
 })
 
+test('says so when a folder holds no photos or videos', async ({ page }) => {
+  await openLibrary(page)
+  await writeFile(page, ['papers', 'notes.txt'], 'mine')
+
+  await importFolder(page, ['papers'])
+  await expect(page.locator('.toast')).toHaveText('No photos or videos found.')
+})
+
 test('never imports its own library folder', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg'])
@@ -1569,6 +1577,10 @@ function inspectVideo(bytes: Uint8Array) {
 test('imports, plays, grades and exports videos', async ({ page }) => {
   const videos = ['clip.mp4', 'VID_20240108_093000.mp4', 'flat.mp4']
   await openLibrary(page)
+
+  // The Import photos picker shows videos too.
+  await expect(page.locator('#import-files')).
+    toHaveAttribute('accept', '.jpg,.jpeg,.mp4,.mov,.m4v')
   await importPhotos(page, [...videos, 'e2e-a.jpg', 'broken.mp4'])
   await expect(page.locator('.toast')).toContainText('Imported 4')
   await expect(page.locator('.toast')).

@@ -8,7 +8,7 @@ import {
   cellRect, GAP, gridLayout, HEADER, PAD, type Row, type Section
 } from '../grid-layout'
 import {
-  trimRange, type Album, type AlbumSort, type Library, type Photo
+  trimRange, VIDEO_EXTS, type Album, type AlbumSort, type Library, type Photo
 } from '../library'
 import { isEdited } from '../schema'
 import {
@@ -21,6 +21,11 @@ const SORTS: [AlbumSort, string][] = [
   ['size', 'File size']
 ]
 const CUSTOM: [AlbumSort, string] = ['custom', 'Custom order']
+
+// The file picker shows the files the importer takes.
+const IMPORTABLE = ['jpg', 'jpeg', ...VIDEO_EXTS]
+  .map(ext => `.${ext}`)
+  .join(',')
 
 const TITLES = {
   all: 'All photos',
@@ -45,7 +50,7 @@ export function library(state: AppState, lib: Library) {
       <input
         type="file"
         id="import-files"
-        accept="image/jpeg,.jpg,.jpeg"
+        accept=${IMPORTABLE}
         multiple
         hidden
         data-change="import-input"

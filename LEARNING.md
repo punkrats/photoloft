@@ -69,6 +69,10 @@
   button can therefore type into the field at the cursor with
   `setRangeText(text, start, end, 'end')`, which fires no `input`
   event.
+- Chromium turns a MIME type in a file input's `accept` into the
+  extensions it maps to that type, for `image/jpeg` also `.jfif`,
+  `.pjpeg` and `.pjp`. To show just the files an importer takes, list
+  its extensions alone.
 
 - Chromium applies a video's rotation flag in `videoWidth/Height` and
   in `createImageBitmap(video)`; feeding frames as ImageBitmaps keeps
@@ -148,6 +152,9 @@
   that never comes, until the test times out. Click it from
   `evaluateAll` in the page, which checks and clicks in one step.
 - `toHaveCSS('--name', value)` reads custom properties too.
+- `setInputFiles` ignores the input's `accept`: MP4s went in through a
+  picker that showed JPEGs only. Check the attribute to test what the
+  picker shows.
 - `test.use({ timezoneId: 'Pacific/Tahiti' })` inside a
   `test.describe` gives those tests' pages that zone, whatever the
   machine's. In Vitest, `process.env.TZ = '...'` at the top of a test

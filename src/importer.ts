@@ -25,9 +25,10 @@ type Outcome = {
 
 const THUMB_SOURCE = 1024
 
-// Copies JPEGs into the library. A photo counts as known when a file
-// with exactly the same content was imported before, under any name;
-// known photos are not copied again but still join the open album and
+// Copies JPEGs and videos into the library. A photo counts as known
+// when a file with exactly the same content was imported before, under
+// any name, a video when its size and first and last megabyte match;
+// known ones are not copied again but still join the open album and
 // come back from the trash.
 export async function importEntries(
   state: AppState, entries: (File | FileSystemHandle)[]
@@ -51,7 +52,7 @@ export async function importEntries(
   const { files, skipped } = found
   if (progress.cancelled || files.length === 0) {
     state.progress = null
-    if (!progress.cancelled) showToast(state, 'No JPEG files found.')
+    if (!progress.cancelled) showToast(state, 'No photos or videos found.')
     render(state)
     return
   }
