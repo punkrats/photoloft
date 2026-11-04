@@ -525,6 +525,24 @@ class FfmpegOutput(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
+class Job(unittest.TestCase):
+    def test_removes_a_failed_jobs_files_and_keeps_its_error(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        (folder / 'input').write_bytes(b'not a video')
+        (folder / 'lut.cube').write_text(lut())
+
+        job = serve.Jobs().start(folder, GOOD)
+        for _ in range(200):
+            if job['state'] != 'running':
+                break
+            time.sleep(0.05)
+        self.assertEqual(job['state'], 'failed')
+        self.assertIn('Invalid data', job['error'])
+        self.assertFalse(folder.exists())
+
+
+@unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
 class Api(unittest.TestCase):
     def setUp(self):
         self.server = serve.make_server(0)

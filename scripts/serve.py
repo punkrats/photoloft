@@ -497,15 +497,18 @@ class Jobs:
         def progress(value):
             job['progress'] = value
 
-        # Any failure ends the job, so the page stops waiting for it.
+        # Any failure ends the job, so the page stops waiting for it. The
+        # upload and any half-written output go at once, since the page
+        # never fetches a failed job's result.
         try:
             export_video(folder / 'input', folder / 'output.mp4', settings,
                          folder / 'lut.cube', progress)
             job['state'] = 'done'
             job['progress'] = 1.0
         except Exception as error:
-            job['state'] = 'failed'
+            shutil.rmtree(folder, ignore_errors=True)
             job['error'] = str(error)[-500:]
+            job['state'] = 'failed'
 
     def get(self, job_id):
         with self.lock:
