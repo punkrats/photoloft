@@ -5,10 +5,24 @@ import photos and videos, sort them into albums, fix colour, tone and
 angle, and export each album as named, size-limited files. Everything
 stays on your disk.
 
-## Use
+## Install
 
-Photoloft runs in Chromium, Omarchy's browser. Building it needs
-Node.js; its small local service needs Python 3, video exports need
+Photoloft is in the AUR:
+
+```
+yay -S photoloft
+```
+
+Start it from the app launcher (Super+Space). It runs in Chromium: on
+Omarchy as a web app, elsewhere in a Chromium app window. A small user
+service, started when you open Photoloft, serves the page at
+http://127.0.0.1:47321 and makes video exports with ffmpeg. The fixed
+local address lets Chromium remember folder access ("Allow on every
+visit"), which it does not do for pages opened from disk.
+
+### From source
+
+Building needs Node.js; the service needs Python 3, video exports need
 ffmpeg, and the install script needs ImageMagick.
 
 ```
@@ -17,12 +31,27 @@ npm run build
 scripts/install-launcher.sh
 ```
 
-The script adds a small user service that serves the built page at
-http://127.0.0.1:47321 and a launcher entry; start Photoloft from the
-app launcher (Super+Space). The fixed local address lets Chromium
-remember folder access ("Allow on every visit"), which it does not do
-for pages opened from disk. Run the script again after moving the
-project. Its header lists how to remove both.
+The script adds the user service, serving the built page at the same
+address, and a launcher entry. Run it again after moving the project.
+Its header lists how to remove both.
+
+### From the script install to the package
+
+Both add a launcher entry and a user service named `photoloft.service`,
+and the script's service would win. Remove the script install first,
+then install the package:
+
+```
+omarchy-webapp-remove Photoloft
+systemctl --user disable --now photoloft
+rm ~/.config/systemd/user/photoloft.service
+yay -S photoloft
+```
+
+The library and Chromium's folder access stay, since both serve the
+same address.
+
+## Use
 
 On first start, pick an empty folder such as `~/Pictures/Photoloft`.
 Photoloft keeps imported photos, edits and albums in its hidden
@@ -140,10 +169,32 @@ Press `?` in the app for keyboard shortcuts.
   ffmpeg video export
 - `python3 -m unittest scripts/test_install_launcher.py` runs the
   install script against stand-in commands in a temporary home
+- `python3 -m unittest scripts/test_photoloft_command.py
+  scripts/test_aur_release.py` does the same for the package's
+  `photoloft` command and the release script
 
 `test/fixtures/make-fixtures.sh` regenerates the test photos
 (ImageMagick and exiftool). `scripts/subset-icons.sh` rebuilds the
 icon font after adding an icon to `src/styles/icons.scss`.
+
+## Release
+
+Once: an AUR account with your SSH key, and a clone of the package,
+`git clone ssh://aur@aur.archlinux.org/photoloft.git`.
+
+For each release:
+
+1. `npm version 0.2.0 -m 'Release %s'` raises the version in
+   `package.json` and `package-lock.json`, commits and tags `v0.2.0`;
+   `git push origin main v0.2.0` pushes both.
+2. Run `scripts/aur-release.sh`. It puts the version and the checksum
+   of the tag's tarball into `packaging/aur/` and regenerates
+   `.SRCINFO`, and prints the next steps.
+3. Copy `packaging/aur/PKGBUILD` and `.SRCINFO` into the AUR clone,
+   commit and push there, then commit `packaging/aur` here.
+
+The package builds from the tag's tarball, so a change under
+`packaging/` reaches it with the next tag.
 
 ## Layout
 
@@ -157,6 +208,9 @@ icon font after adding an icon to `src/styles/icons.scss`.
   state
 - `src/ui/` renders with lit-html, one template module per area, each
   with a matching stylesheet in `src/styles/`
+- `packaging/aur/` holds the AUR recipe; `packaging/` the files the
+  package installs besides the page and the server: the `photoloft`
+  command, its user unit, desktop entry and icon
 
 ## License
 
@@ -174,10 +228,11 @@ license texts.
 - [lit-html](https://lit.dev) renders the interface: BSD-3-Clause,
   Copyright (c) 2017 Google LLC.
 - [Lucide](https://lucide.dev) draws the icons, from the subset font
-  `src/assets/icons.woff2` that `scripts/subset-icons.sh` builds: ISC,
-  Copyright (c) 2026 Lucide Icons and Contributors. The icons Lucide
-  derives from [Feather](https://feathericons.com), several of them in
-  the subset, are MIT, Copyright (c) 2013-present Cole Bemis.
+  `src/assets/icons.woff2` that `scripts/subset-icons.sh` builds, and
+  the launcher icon `packaging/photoloft.svg`: ISC, Copyright (c) 2026
+  Lucide Icons and Contributors. The icons Lucide derives from
+  [Feather](https://feathericons.com), several of them in the subset,
+  are MIT, Copyright (c) 2013-present Cole Bemis.
 
 The map tiles (`tile.openstreetmap.org`) and the place search
 (Nominatim) come from [OpenStreetMap](https://www.openstreetmap.org)

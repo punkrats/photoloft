@@ -1,14 +1,17 @@
 # Third-party notices
 
-The repository holds a subset of the Lucide icon font, and the built
-page bundles Leaflet and lit-html. Each section below gives the
-project's license text as its package in `node_modules` carries it.
+The repository holds a subset of the Lucide icon font and a launcher
+icon made from a Lucide icon, and the built page bundles Leaflet and
+lit-html. Each section below gives the project's license text as its
+package in `node_modules` carries it.
 
 ## Lucide
 
 `src/assets/icons.woff2` is a subset of the Lucide font from the
 `lucide-static` package (https://lucide.dev), built by
-`scripts/subset-icons.sh`.
+`scripts/subset-icons.sh`. `packaging/photoloft.svg`, the launcher
+icon of the AUR package, draws Lucide's `images` icon on a blue
+rounded square.
 
 ```text
 ISC License

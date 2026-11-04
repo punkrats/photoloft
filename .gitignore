@@ -4,3 +4,6 @@ test-results/
 playwright-report/
 .todo/
 __pycache__/
+packaging/aur/src/
+packaging/aur/pkg/
+packaging/aur/*.tar.*

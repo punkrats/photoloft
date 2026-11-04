@@ -1,0 +1,23 @@
+<!-- Lucide's images icon (lucide-static v1.66.0, ISC) on a blue
+     rounded square; THIRD-PARTY-NOTICES.md holds the license. -->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="256"
+  height="256"
+  viewBox="0 0 256 256"
+>
+  <rect x="16" y="16" width="224" height="224" rx="52" fill="#3b7be0"/>
+  <g
+    transform="translate(53 53) scale(6.25)"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"/>
+    <path d="M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"/>
+    <circle cx="13" cy="7" r="1" fill="#ffffff"/>
+    <rect x="8" y="2" width="14" height="14" rx="2"/>
+  </g>
+</svg>

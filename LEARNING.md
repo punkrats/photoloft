@@ -202,6 +202,36 @@
   `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`: the real
   systemctl then cannot reach the user manager.
 
+## Packaging
+
+- A user unit in `~/.config/systemd/user` wins over one of the same name
+  in `/usr/lib/systemd/user`. Pacman's
+  `30-systemd-daemon-reload-user.hook` reloads the user managers when a
+  package changes `usr/lib/systemd/user/*`.
+- `omarchy-webapp-install` copies the icon to
+  `~/.local/share/icons/hicolor/256x256/apps/<name>.png` and writes
+  `Icon=<name>`. `omarchy-launch-webapp` is in `/usr/bin` (package
+  `omarchy`) and in `/usr/share/omarchy/bin`, which Omarchy puts on
+  PATH.
+- `systemctl --user show -P ActiveEnterTimestamp --timestamp=unix
+  <unit>` prints `@<seconds>`, and an empty line for a unit never
+  started.
+- `makepkg -D <dir> --printsrcinfo` reads the PKGBUILD offline. makepkg
+  takes a source file found in the PKGBUILD's folder or in `SRCDEST`
+  under its source name without downloading, so a local tarball named
+  `photoloft-<v>.tar.gz` there builds the real recipe before the tag is
+  on GitHub (`npm ci` still needs the network). Without the `nodejs`
+  and `npm` packages (Node from mise), build with `--nodeps`.
+- `unshare -c -n <cmd>` runs a command as the same user without
+  network; makepkg refuses the root that `unshare -r` maps to.
+- A tarball of the working tree as the next commit would hold, without
+  touching the index: `GIT_INDEX_FILE=<tmp> git read-tree HEAD`, `git
+  add -A`, `git write-tree`, then `git archive` of that tree.
+- `python3 -m unittest packaging/test_x.py` imports the pip `packaging`
+  library instead of the folder, so Python tests stay in `scripts/`.
+- ImageMagick's security policy refuses SVG from stdin (`svg:-`); write
+  the SVG to a file first.
+
 ## Metadata
 
 - `exiftool -DateTime1 clip.MOV` prints the clock text an Olympus

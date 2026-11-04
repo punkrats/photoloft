@@ -1,0 +1,40 @@
+# Maintainer: Andre Pankratz <andre@vidibus.com>
+
+pkgname=photoloft
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Small photo app for Omarchy: import, sort, fix and export photos and videos'
+arch=('any')
+url='https://github.com/punkrats/photoloft'
+license=('MIT' 'BSD-2-Clause' 'BSD-3-Clause' 'ISC')
+depends=('bash' 'chromium' 'curl' 'ffmpeg' 'hicolor-icon-theme' 'python'
+  'systemd')
+makedepends=('nodejs' 'npm')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  npm ci --cache "$srcdir/npm-cache" --no-audit --no-fund
+  npm run build
+}
+
+# The service runs scripts/serve.py, which serves ../dist, so both keep
+# the repository's layout under /usr/lib/photoloft.
+package() {
+  cd "$pkgname-$pkgver"
+  local lib="$pkgdir/usr/lib/$pkgname"
+
+  install -d "$lib"
+  cp -r dist "$lib"
+  install -Dm644 scripts/serve.py -t "$lib/scripts"
+  install -Dm755 packaging/photoloft -t "$pkgdir/usr/bin"
+  install -Dm644 packaging/photoloft.service \
+    -t "$pkgdir/usr/lib/systemd/user"
+  install -Dm644 packaging/photoloft.desktop \
+    -t "$pkgdir/usr/share/applications"
+  install -Dm644 packaging/photoloft.svg \
+    -t "$pkgdir/usr/share/icons/hicolor/scalable/apps"
+  install -Dm644 LICENSE THIRD-PARTY-NOTICES.md \
+    -t "$pkgdir/usr/share/licenses/$pkgname"
+}

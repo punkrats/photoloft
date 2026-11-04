@@ -1,0 +1,6 @@
+[Unit]
+Description=Photoloft photo editor page on http://127.0.0.1:47321
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/photoloft/scripts/serve.py 47321
+Restart=on-failure

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Photoloft
+Comment=Small photo app for Omarchy: import, sort, fix and export photos and videos
+Exec=photoloft
+Icon=photoloft
+Terminal=false
+Categories=Graphics;Photography;
+Keywords=photo;picture;album;video;

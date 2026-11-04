@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Opens Photoloft. Its user service serves the page at
+# http://127.0.0.1:47321; it starts here when it is not running, and
+# restarts when it runs a server older than the installed one, as after
+# an update. Once the page answers, it opens as a web app on Omarchy and
+# in a Chromium app window elsewhere. After ten seconds without an
+# answer it opens all the same, so the window shows the error.
+
+set -euo pipefail
+
+url=http://127.0.0.1:47321
+unit=photoloft.service
+server=/usr/lib/photoloft/scripts/serve.py
+
+# Pacman sets the server's ctime when it installs a new version.
+outdated() {
+  local started
+  started=$(systemctl --user show -P ActiveEnterTimestamp \
+    --timestamp=unix "$unit")
+  ((${started#@} < $(stat -c %Z "$server")))
+}
+
+answers() {
+  for _ in {1..100}; do
+    curl -fs -m 1 -o /dev/null "$url" && return
+    sleep 0.1
+  done
+  return 1
+}
+
+if systemctl --user is-active --quiet "$unit" && outdated; then
+  systemctl --user restart "$unit"
+else
+  systemctl --user start "$unit"
+fi
+
+if ! answers; then
+  echo "No answer from $url; see journalctl --user -u photoloft" >&2
+fi
+
+if command -v omarchy-launch-webapp >/dev/null; then
+  exec omarchy-launch-webapp "$url"
+fi
+exec chromium --app="$url"

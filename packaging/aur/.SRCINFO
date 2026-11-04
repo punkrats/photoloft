@@ -1,0 +1,23 @@
+pkgbase = photoloft
+	pkgdesc = Small photo app for Omarchy: import, sort, fix and export photos and videos
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/punkrats/photoloft
+	arch = any
+	license = MIT
+	license = BSD-2-Clause
+	license = BSD-3-Clause
+	license = ISC
+	makedepends = nodejs
+	makedepends = npm
+	depends = bash
+	depends = chromium
+	depends = curl
+	depends = ffmpeg
+	depends = hicolor-icon-theme
+	depends = python
+	depends = systemd
+	source = photoloft-0.1.0.tar.gz::https://github.com/punkrats/photoloft/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = photoloft
