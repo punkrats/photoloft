@@ -945,6 +945,50 @@ test('drops on an album only the photos it lacks', async ({ page }) => {
   await expect(albumCount(page, 'Tahiti')).toHaveText('1')
 })
 
+test('leaves no undo step when an import changes nothing', async ({ page }) => {
+  const photos = ['e2e-a.jpg', 'e2e-b.jpg']
+  const known = 'Imported 0 photos. 2 already imported.'
+  const toast = page.locator('.toast')
+  const folder = page.locator('.sidebar-folder')
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  const rome = page.locator('[data-drop-album]', { hasText: 'Rome' })
+  await openLibrary(page)
+  await importPhotos(page, photos)
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('s')
+  await expect(starred.locator('.nav-count')).toHaveText('1')
+
+  // The same photos again change nothing: no save is due right after,
+  // and Ctrl+Z takes back the star before.
+  await saved(page)
+  await dismissToast(page)
+  await importPhotos(page, photos)
+  await expect(toast).toContainText(known)
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(starred.locator('.nav-count')).toHaveText('')
+
+  // With an album open, the known photo it lacks joins it.
+  await cell(page, 'e2e-a.jpg').click()
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome')
+  await rome.click()
+  await dismissToast(page)
+  await importPhotos(page, photos)
+  await expect(toast).toContainText(known)
+  await expect(albumCount(page, 'Rome')).toHaveText('2')
+  await expect(names(page)).toHaveText(photos)
+
+  // Once the album holds both, the import changes nothing either.
+  await saved(page)
+  await dismissToast(page)
+  await importPhotos(page, photos)
+  await expect(toast).toContainText(known)
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(albumCount(page, 'Rome')).toHaveText('1')
+})
+
 test('moves through the album dialog with the keys', async ({ page }) => {
   const dialog = page.locator('.dialog')
   const field = page.locator('[data-input="picker"]')

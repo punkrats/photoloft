@@ -73,6 +73,10 @@
 - To show that an action saves nothing, wait for `saved` first, then
   read `data-saved` once with `getAttribute` right after the action.
   `toHaveAttribute` retries and passes once a scheduled save ends.
+  The same read after an import proves the import saved nothing; to
+  prove it recorded no undo step, make a change first and check that
+  Ctrl+Z takes back that change. Shortcuts work right after
+  `setInputFiles` on the hidden import input.
 - `page.keyboard.press` does not wait for a frame, so a second key can
   arrive while a field the state just closed is still in the page and
   focused. To press keys within one frame on purpose, replace

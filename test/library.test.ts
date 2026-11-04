@@ -228,6 +228,13 @@ describe('last import', () => {
     expect(lib.lastImport).toEqual(['a', 'c'])
   })
 
+  it('returns the library itself when an import brings nothing', () => {
+    const lib = sample()
+    expect(addPhotos(lib, [])).toBe(lib)
+    expect(setLastImport(lib, [])).toBe(lib)
+    expect(restorePhotos(lib, [])).toBe(lib)
+  })
+
   it('lists the last import sorted, without trashed photos', () => {
     let lib = setLastImport(sample(), ['a', 'b', 'c'])
     lib = trashPhotos(lib, ['c'], 'now')

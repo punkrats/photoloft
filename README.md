@@ -26,9 +26,11 @@ Photoloft keeps imported photos, edits and albums in its hidden
 - Import folder takes a folder with all its subfolders; Import photos
   takes single files. Dropping files or folders works too.
 - Photos already in the library (same content, any file name) are
-  skipped. Hidden folders, non-JPEG files and other programs' thumbnail
-  and cache folders (`thumbs`, `thumbnails`, `previews`, `cache`,
-  `*.lrdata`, `@eaDir`) are left out.
+  skipped; those in the Trash come back, and with an album open they
+  join it. An import that changes nothing leaves no undo step. Hidden
+  folders, non-JPEG files and other programs' thumbnail and cache
+  folders (`thumbs`, `thumbnails`, `previews`, `cache`, `*.lrdata`,
+  `@eaDir`) are left out.
 - Star keepers with `S` or the star on a thumbnail; the Starred view
   lists them.
 - Add to album (selection bar, editor header, `G`) puts the selection,
