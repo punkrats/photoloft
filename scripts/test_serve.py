@@ -30,7 +30,8 @@ GOOD = {
     'crf': 20,
     'creationTime': None,
     'stripGps': True,
-    'meta': {}
+    'meta': {},
+    'trim': None
 }
 
 INFO = {
@@ -92,6 +93,22 @@ def frames(path):
     return subprocess.check_output(args).decode()
 
 
+# Every frame as a small grey image, for telling frames apart.
+def thumbnails(path):
+    args = ['ffmpeg', '-v', 'error', '-i', str(path), '-vf',
+            'scale=80:60,format=gray', '-f', 'rawvideo', '-']
+    data = subprocess.check_output(args)
+    size = 80 * 60
+    return [data[at:at + size] for at in range(0, len(data), size)]
+
+
+def nearest(frame, candidates):
+    def distance(other):
+        return sum(abs(a - b) for a, b in zip(frame, other))
+    scores = [distance(other) for other in candidates]
+    return scores.index(min(scores))
+
+
 def first_pixel(path):
     args = ['ffmpeg', '-v', 'error', '-i', str(path), '-frames:v', '1',
             '-vf', 'scale=in_color_matrix=bt709:in_range=tv,format=rgb24',
@@ -124,8 +141,8 @@ class Settings(unittest.TestCase):
         with self.assertRaises(ValueError):
             serve.parse_settings({**GOOD, 'filter': 'movie=/etc/passwd'})
 
-    def test_requires_location_and_info_settings(self):
-        for key in ('stripGps', 'meta'):
+    def test_requires_location_info_and_trim_settings(self):
+        for key in ('stripGps', 'meta', 'trim'):
             settings = {k: v for k, v in GOOD.items() if k != key}
             with self.assertRaises(ValueError, msg=key):
                 serve.parse_settings(settings)
@@ -151,6 +168,30 @@ class Settings(unittest.TestCase):
         self.assertEqual(parsed['author'], 'xy')
         self.assertEqual(parsed['keywords'][:2], ['sea', 'k' * 100])
         self.assertEqual(len(parsed['keywords']), 50)
+
+    def test_accepts_a_trim(self):
+        trim = {'start': 0.4, 'end': 1.6}
+        parsed = serve.parse_settings({**GOOD, 'trim': trim})
+        self.assertEqual(parsed['trim'], trim)
+        self.assertIsNone(serve.parse_settings(GOOD)['trim'])
+
+    def test_rejects_bad_trims(self):
+        bad = [
+            {'start': -0.1, 'end': 1},
+            {'start': 1, 'end': 1},
+            {'start': 1, 'end': 1.0004},
+            {'start': 2, 'end': 1},
+            {'start': '0', 'end': 1},
+            {'start': True, 'end': 1},
+            {'start': 0, 'end': float('inf')},
+            {'start': 0},
+            {'start': 0, 'end': 1, 'step': 1},
+            [0, 1],
+            '0.4-1.6'
+        ]
+        for trim in bad:
+            with self.assertRaises(ValueError, msg=trim):
+                serve.parse_settings({**GOOD, 'trim': trim})
 
     def test_rejects_bad_info(self):
         bad = [
@@ -245,6 +286,36 @@ class Filters(unittest.TestCase):
         chain = serve.build_filters({**GOOD, 'shortSide': 0}, '/l.cube')
         self.assertNotIn('min(', chain)
         self.assertIn('trunc(iw/2)*2', chain)
+
+
+class Cut(unittest.TestCase):
+    def args(self, trim):
+        settings = {**GOOD, 'trim': trim}
+        return serve.ffmpeg_args('in.mp4', 'out.mp4', settings, 'l.cube', None)
+
+    def test_reads_the_whole_input_without_a_trim(self):
+        args = self.args(None)
+        self.assertNotIn('-ss', args)
+        self.assertNotIn('-t', args)
+
+    def test_seeks_accurately_into_the_input(self):
+        args = self.args({'start': 0.4, 'end': 1.6})
+        cut = args[args.index('-accurate_seek'):args.index('-i')]
+        self.assertEqual(cut, ['-accurate_seek', '-ss', '0.400', '-t', '1.200'])
+
+
+@unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
+class Duration(unittest.TestCase):
+    def test_measures_the_whole_file_or_the_trimmed_part(self):
+        clip = FIXTURES / 'clip.mp4'
+        self.assertAlmostEqual(serve.duration_of(clip), 2.0, places=2)
+        trim = {'start': 0.4, 'end': 1.6}
+        self.assertAlmostEqual(serve.duration_of(clip, trim), 1.2, places=2)
+
+    def test_ends_a_trim_past_the_file_at_its_end(self):
+        trim = {'start': 1.5, 'end': 9}
+        length = serve.duration_of(FIXTURES / 'clip.mp4', trim)
+        self.assertAlmostEqual(length, 0.5, places=2)
 
 
 class Guard(unittest.TestCase):
@@ -355,6 +426,29 @@ class Export(unittest.TestCase):
         self.assertEqual(info['ItemList:Artist'], 'Zoë Name')
         self.assertEqual(info['UserData:GPSCoordinates'],
                          '-16.5004 -151.7415')
+
+    def test_cuts_the_trimmed_part_to_the_frame(self):
+        trim = {'start': 0.4, 'end': 1.6}
+        out = self.export('clip.mp4', {**GOOD, 'trim': trim}, lut())
+        source = thumbnails(FIXTURES / 'clip.mp4')
+        cut = thumbnails(out)
+        self.assertEqual(len(cut), 30)
+        self.assertEqual(nearest(cut[0], source), 10)
+        self.assertEqual(nearest(cut[-1], source), 39)
+        lengths = subprocess.check_output([
+            'ffprobe', '-v', 'error', '-show_entries', 'stream=duration',
+            '-of', 'csv=p=0', str(out)]).decode().split()
+        for length in lengths:
+            self.assertAlmostEqual(float(length), 1.2, delta=0.05)
+
+    def test_counts_progress_against_the_trimmed_length(self):
+        shares = []
+        lut_path = self.dir / 'lut.cube'
+        lut_path.write_text(lut())
+        settings = {**GOOD, 'trim': {'start': 0.4, 'end': 1.6}}
+        serve.export_video(FIXTURES / 'clip.mp4', self.dir / 'out.mp4',
+                           settings, lut_path, shares.append)
+        self.assertGreater(max(shares), 0.99)
 
     def test_keeps_phone_rotation_and_sound_without_upscaling(self):
         out = self.export('VID_20240108_093000.mp4', GOOD, lut())

@@ -96,9 +96,9 @@ Photoloft keeps imported photos, edits and albums in its hidden
 - Trim a video in the editor: drag the grips at the ends of the play bar,
   or press `I` and `O` to mark in and out where it plays; `0` to `9`
   jump to 0 % to 90 % of the clip. Play runs from the in mark to the out
-  mark, and the grid shows the trimmed length. The original stays whole;
-  Reset trim or Ctrl+Z takes a trim back, and copied settings leave it
-  out.
+  mark, the grid shows the trimmed length, and the export holds only the
+  trimmed part, cut to the frame. The original stays whole; Reset trim
+  or Ctrl+Z takes a trim back, and copied settings leave it out.
 
 Press `?` in the app for keyboard shortcuts.
 

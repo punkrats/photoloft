@@ -69,6 +69,9 @@
   width in from either end: `calc(w / 2 + (100% - w) * share)`.
 - Setting a video's `currentTime` always seeks and fires `timeupdate`,
   also to the time it already has.
+- ffmpeg: `-ss` and `-t` before `-i` while re-encoding cut to the frame
+  (accurate seeking is the default for input seeking); the output starts
+  at 0, and `-progress`'s `out_time_us` counts from the cut.
 
 ## Testing
 

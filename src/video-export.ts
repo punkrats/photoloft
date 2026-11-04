@@ -1,5 +1,5 @@
 import { bboxRegion, effectiveCrop, orientedSize } from './geometry'
-import type { ExportSettings, Photo } from './library'
+import type { ExportSettings, Photo, Trim } from './library'
 import { cubeLut } from './lut'
 import type { Meta } from './meta'
 import { colourOf } from './schema'
@@ -14,6 +14,7 @@ export type VideoSettings = {
   creationTime: string | null
   stripGps: boolean
   meta: Meta
+  trim: Trim | null
 }
 
 type Choices = Pick<ExportSettings, 'videoSide' | 'stripGps'>
@@ -22,7 +23,8 @@ const POLL_MS = 400
 
 // What the server needs to export a video: quarter turns, flip and
 // straighten as set, the crop as fractions of the straightened frame,
-// which is what ffmpeg sees after rotating, and the info to write.
+// which is what ffmpeg sees after rotating, the info to write and the
+// part of the clip to keep.
 export function videoSettings(photo: Photo, choices: Choices): VideoSettings {
   const edit = photo.edit
   const source = { w: photo.width, h: photo.height }
@@ -47,7 +49,8 @@ export function videoSettings(photo: Photo, choices: Choices): VideoSettings {
     crf: 20,
     creationTime: photo.takenAt ? new Date(photo.takenAt).toISOString() : null,
     stripGps: choices.stripGps,
-    meta: photo.meta
+    meta: photo.meta,
+    trim: photo.video?.trim ?? null
   }
 }
 

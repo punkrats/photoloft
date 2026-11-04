@@ -33,8 +33,16 @@ describe('videoSettings', () => {
       crf: 20,
       creationTime: null,
       stripGps: true,
-      meta: {}
+      meta: {},
+      trim: null
     })
+  })
+
+  it('sends the trim of a trimmed clip', () => {
+    const trim = { start: 0.4, end: 1.6 }
+    const clip = { duration: 2, ext: 'mp4', trim } as const
+    const photo: Photo = { ...video(), video: clip }
+    expect(videoSettings(photo, SD).trim).toEqual(trim)
   })
 
   it('sends the capture time as UTC for the file', () => {

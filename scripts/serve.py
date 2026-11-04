@@ -7,8 +7,8 @@
 #
 # The video API only answers the Photoloft page itself (Host and Origin
 # checks plus a per-start token), never reads paths from requests,
-# builds every ffmpeg filter from validated numbers, and hands info
-# texts to ffmpeg as single cleaned arguments.
+# builds every ffmpeg filter and cut from validated numbers, and hands
+# info texts to ffmpeg as single cleaned arguments.
 
 import functools
 import http.server
@@ -36,10 +36,13 @@ NUMBER = re.compile(r'^-?\d+(\.\d+)?([eE]-?\d+)?$')
 SHORT_SIDES = (0, 720, 1080)
 SETTING_KEYS = {
     'rotate', 'flip', 'angle', 'crop', 'shortSide', 'crf', 'creationTime',
-    'stripGps', 'meta'
+    'stripGps', 'meta', 'trim'
 }
 CREATION_TIME = re.compile(
     r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$')
+
+# Cut points go to ffmpeg in milliseconds, so a trim keeps at least one.
+SHORTEST_CUT = 0.001
 
 # Info text lengths in characters, the same src/exif.ts uses for photos.
 TEXT_LIMITS = {
@@ -114,8 +117,21 @@ def parse_settings(raw):
         'crf': crf,
         'creationTime': created,
         'stripGps': raw['stripGps'],
-        'meta': parse_meta(raw['meta'])
+        'meta': parse_meta(raw['meta']),
+        'trim': parse_trim(raw['trim'])
     }
+
+
+# The part of the clip to keep, in seconds, or None for all of it.
+def parse_trim(raw):
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {'start', 'end'}:
+        raise ValueError('trim')
+    start, end = number(raw['start']), number(raw['end'])
+    if start < 0 or end - start < SHORTEST_CUT:
+        raise ValueError('trim')
+    return {'start': start, 'end': end}
 
 
 # Texts are cleaned and capped like photo exports; a missing key leaves
@@ -231,7 +247,8 @@ def build_filters(settings, lut_path):
 
 def ffmpeg_args(source, target, settings, lut_path, place):
     return [
-        'ffmpeg', '-hide_banner', '-nostdin', '-y', '-i', str(source),
+        'ffmpeg', '-hide_banner', '-nostdin', '-y', *cut(settings['trim']),
+        '-i', str(source),
         '-map', '0:v:0', '-map', '0:a:0?',
         '-vf', build_filters(settings, lut_path),
         '-c:v', 'libx264', '-preset', 'medium', '-crf', str(settings['crf']),
@@ -243,6 +260,17 @@ def ffmpeg_args(source, target, settings, lut_path, place):
         '-progress', 'pipe:1', '-nostats', '-loglevel', 'error',
         str(target)
     ]
+
+
+# Seeking in the input while re-encoding decodes from the keyframe
+# before the in mark and drops every frame before it, so the export
+# starts and ends on the frames the marks point at.
+def cut(trim):
+    if not trim:
+        return []
+    length = trim['end'] - trim['start']
+    return ['-accurate_seek', '-ss', f"{trim['start']:.3f}",
+            '-t', f'{length:.3f}']
 
 
 # Tags over the source's own: the capture time, the info texts set in
@@ -287,17 +315,22 @@ def recorded_place(path):
     return parse_iso6709(tags.get('location', ''))
 
 
-def duration_of(path):
+# Seconds the export lasts: the trimmed part, ending with the file, or
+# the whole file; 0 when ffprobe cannot tell.
+def duration_of(path, trim=None):
     args = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
             '-of', 'default=nw=1:nk=1', str(path)]
     try:
-        return float(subprocess.check_output(args).strip() or 0)
+        full = float(subprocess.check_output(args).strip() or 0)
     except (subprocess.CalledProcessError, ValueError):
         return 0.0
+    if not trim or not full:
+        return full
+    return max(0.0, min(full, trim['end']) - trim['start'])
 
 
 def export_video(source, target, settings, lut_path, on_progress=None):
-    total = duration_of(source)
+    total = duration_of(source, settings['trim'])
     place = place_of(settings, source)
     args = ffmpeg_args(source, target, settings, lut_path, place)
     with subprocess.Popen(args, stdout=subprocess.PIPE,

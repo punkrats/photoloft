@@ -1136,14 +1136,16 @@ function inspectVideo(bytes: Uint8Array) {
   writeFileSync(file, bytes)
   const probe = execFileSync('ffprobe', [
     '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-    'stream=width,height', '-of', 'csv=p=0', file
-  ]).toString().trim()
+    'stream=width,height,duration', '-of', 'csv=p=0', file
+  ]).toString().trim().split(',')
   const pixel = execFileSync('ffmpeg', [
     '-v', 'error', '-i', file, '-frames:v', '1', '-vf',
     'scale=in_color_matrix=bt709:in_range=tv,format=rgb24',
     '-f', 'rawvideo', '-'
   ])
-  return { size: probe, pixel: [...pixel.subarray(0, 3)] }
+  const [width, height, duration] = probe
+  const size = `${width},${height}`
+  return { size, duration: Number(duration), pixel: [...pixel.subarray(0, 3)] }
 }
 
 test('imports, plays, grades and exports videos', async ({ page }) => {
@@ -1176,6 +1178,10 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
   await expect(play).toHaveClass('icon-pause')
   await page.keyboard.press('k')
   await expect(play).toHaveClass('icon-play')
+
+  // Keep 0.4 s to 1.6 s of it for the export.
+  for (const key of ['2', 'i', '8', 'o']) await page.keyboard.press(key)
+  await expect(page.locator('.transport')).toContainText('Trimmed to 0:01')
   await page.keyboard.press('Escape')
   await expect(page.locator('.app')).toHaveAttribute('data-mode', 'grid')
 
@@ -1206,6 +1212,8 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
   }
   expect(results.map(r => r.size).sort()).
     toEqual(['240,320', '320,240', '64,48'])
+  const trimmed = results.find(r => r.size === '320,240')!
+  expect(trimmed.duration).toBeCloseTo(1.2, 1)
 
   // The graded clip comes out with the preview's colour maths.
   const flat = results.find(r => r.size === '64,48')!
