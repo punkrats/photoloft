@@ -35,16 +35,21 @@ export const MIN_TRIM = 1
 const SLACK = 1e-6
 
 // `photos` is the custom order; it stays untouched while the album is
-// sorted, so switching back to 'custom' restores it.
+// sorted, so switching back to 'custom' restores it. `exportFolder` is
+// the name of the folder picked for the album's exports; without one
+// they go to Exports in the library folder.
 export type Album = {
   id: string
   name: string
   photos: string[]
   sort?: Sort
   exportName?: string
+  exportFolder?: string
 }
 
-export type ExportRecord = { folder: string, files: string[] }
+// The files an album's last export wrote and where: `folder` is the
+// album's folder under Exports, or null for the folder picked for it.
+export type ExportRecord = { folder: string | null, files: string[] }
 
 // A capture time to replace: `from` is the time the photo must still
 // have for `to` to apply.
@@ -94,6 +99,10 @@ export type AlbumSort = Sort | 'custom'
 
 const SORTS: AlbumSort[] = ['date', 'name', 'size', 'custom']
 const META_TEXT = ['title', 'description', 'author', 'copyright'] as const
+
+// The album fields that are bookkeeping (`withBookkeeping`).
+const ALBUM_BOOKKEEPING = ['exportName', 'exportFolder'] as const
+type AlbumBookkeeping = typeof ALBUM_BOOKKEEPING[number]
 
 const VERSION = 1
 const COLLATOR = new Intl.Collator(undefined, {
@@ -435,8 +444,16 @@ export function setAlbumSort(lib: Library, id: string, sort: AlbumSort) {
 // renames its exports too.
 export function setAlbumExportName(lib: Library, id: string, name: string) {
   return mapAlbum(lib, id, a => {
-    return exportNamed(a, name === a.name ? undefined : name)
+    return withField(a, 'exportName', name === a.name ? undefined : name)
   })
+}
+
+// The name of the folder picked for the album's exports, or null for
+// Exports in the library folder.
+export function setAlbumExportFolder(
+  lib: Library, id: string, name: string | null
+) {
+  return mapAlbum(lib, id, a => withField(a, 'exportFolder', name ?? undefined))
 }
 
 export function albumsByName(lib: Library) {
@@ -448,19 +465,23 @@ function mapAlbum(lib: Library, id: string, change: (a: Album) => Album) {
   return { ...lib, albums }
 }
 
-// The album exporting under `name`, or under its own name without one.
-function exportNamed(album: Album, name: string | undefined): Album {
-  const { exportName: _old, ...rest } = album
-  return name === undefined ? rest : { ...rest, exportName: name }
+// The album with `key` set to `value`, or without it when undefined.
+function withField(
+  album: Album, key: AlbumBookkeeping, value: string | undefined
+): Album {
+  const next = { ...album }
+  if (value === undefined) delete next[key]
+  else next[key] = value
+  return next
 }
 
 // ─── Bookkeeping ─────────────────────────────────────────────────────
 
 // What Photoloft notes for itself beside the user's changes: the Export
-// dialog's settings, each album's export name and the files its last
-// export wrote, and the size of each original. Undo and redo keep the
-// latest of these. Gives `lib` the bookkeeping `from` holds for the
-// photos and albums `lib` has; with none different it returns `lib`.
+// dialog's settings, each album's export name and folder and the files
+// its last export wrote, and the size of each original. Undo and redo
+// keep the latest of these. Gives `lib` the bookkeeping `from` holds for
+// the photos and albums `lib` has; with none different it returns `lib`.
 export function withBookkeeping(lib: Library, from: Library): Library {
   const sizes = Object.fromEntries(
     Object.values(from.photos).map(p => [p.id, p.bytes])
@@ -477,8 +498,9 @@ export function withBookkeeping(lib: Library, from: Library): Library {
       next = setExportRecord(next, album.id, record)
     }
     const source = sources.get(album.id)
-    if (source && source.exportName !== album.exportName) {
-      next = mapAlbum(next, album.id, a => exportNamed(a, source.exportName))
+    for (const key of ALBUM_BOOKKEEPING) {
+      if (!source || source[key] === album[key]) continue
+      next = mapAlbum(next, album.id, a => withField(a, key, source[key]))
     }
   }
   return next
@@ -636,7 +658,10 @@ export function migrate(raw: unknown): Library {
   for (const [id, value] of Object.entries(record(data.exports))) {
     const entry = record(value)
     const files = list(entry.files).filter(isString)
-    exports[id] = { folder: str(entry.folder, ''), files }
+    const folder = entry.folder
+    if (folder === null || (isString(folder) && folder)) {
+      exports[id] = { folder, files }
+    }
   }
 
   const exportSettings = migrateExport(record(data.exportSettings))
@@ -746,6 +771,9 @@ function migrateAlbum(raw: Raw, photos: Record<string, Photo>) {
     photos: [...new Set(ids)]
   }
   if (isString(raw.exportName)) album.exportName = raw.exportName
+  if (isString(raw.exportFolder) && raw.exportFolder) {
+    album.exportFolder = raw.exportFolder
+  }
   const sort = SORTS.find(s => s === raw.sort)
   if (sort && sort !== 'custom') album.sort = sort
   return album

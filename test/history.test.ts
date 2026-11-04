@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { emptyHistory, recordChange, redo, undo } from '../src/history'
 import {
   addPhotos, createAlbum, deleteAlbum, emptyLibrary, renameAlbum,
-  setAlbumExportName, setExportRecord, setExportSettings, setPhotoSizes,
-  toggleStars, withBookkeeping, type Library, type Photo
+  setAlbumExportFolder, setAlbumExportName, setExportRecord,
+  setExportSettings, setPhotoSizes, toggleStars, withBookkeeping,
+  type Library, type Photo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -162,6 +163,22 @@ describe('bookkeeping through undo and redo', () => {
     const forward = redo(back.history, back.library)!
     expect(forward.library.albums[0].name).toBe('Rome')
     expect(exportName(forward.library)).toBe('Roma')
+  })
+
+  it('keeps the folder picked for the exports through undo and redo', () => {
+    const before = rome()
+    const starred = toggleStars(before, ['a'])
+    const picked = setAlbumExportFolder(starred, 'al1', 'Holiday')
+    const h = recordChange(emptyHistory(), before, null, 0)
+
+    const back = undo(h, picked)!
+    expect(back.library.photos.a.starred).toBe(false)
+    expect(back.library.albums[0].exportFolder).toBe('Holiday')
+
+    const cleared = setAlbumExportFolder(back.library, 'al1', null)
+    const forward = redo(back.history, cleared)!
+    expect(forward.library.photos.a.starred).toBe(true)
+    expect('exportFolder' in forward.library.albums[0]).toBe(false)
   })
 
   it('restores the snapshot itself when no bookkeeping changed', () => {

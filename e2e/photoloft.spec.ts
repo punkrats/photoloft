@@ -18,13 +18,14 @@ const EXPORTS = ['library', 'Exports', 'Rome 2026']
 
 // The native folder picker cannot be driven, so it hands out folders in
 // the browser's private file system, which has the same API: `library`
-// for the library, and `window.importPath` when importing a folder.
+// for the library, and `window.pickPath` when importing a folder or
+// choosing an album's export folder.
 async function openLibrary(page: Page) {
   await page.addInitScript(() => {
-    const page = window as unknown as { importPath?: string[] }
+    const page = window as unknown as { pickPath?: string[] }
     window.showDirectoryPicker = async options => {
-      const importing = options?.id === 'lightbox-import'
-      const path = importing ? page.importPath ?? [] : ['library']
+      const library = options?.id === 'lightbox-library'
+      const path = library ? ['library'] : page.pickPath ?? []
       let dir = await navigator.storage.getDirectory()
       for (const part of path) {
         dir = await dir.getDirectoryHandle(part, { create: true })
@@ -67,11 +68,15 @@ async function writeFixtures(page: Page, files: Record<string, string>) {
   }
 }
 
+async function setPickPath(page: Page, path: string[]) {
+  await page.evaluate(path => {
+    (window as unknown as { pickPath: string[] }).pickPath = path
+  }, path)
+}
+
 async function importFolder(page: Page, path: string[]) {
   await dismissToast(page)
-  await page.evaluate(path => {
-    (window as unknown as { importPath: string[] }).importPath = path
-  }, path)
+  await setPickPath(page, path)
   const toolbar = page.locator('.toolbar')
   await toolbar.getByRole('button', { name: 'Import folder' }).click()
   await expect(page.locator('.toast')).toBeVisible()
@@ -136,7 +141,7 @@ async function writeFile(page: Page, path: string[], text: string) {
   await page.evaluate(async ({ path, text }) => {
     let dir = await navigator.storage.getDirectory()
     for (const part of path.slice(0, -1)) {
-      dir = await dir.getDirectoryHandle(part)
+      dir = await dir.getDirectoryHandle(part, { create: true })
     }
     const handle = await dir.getFileHandle(path.at(-1)!, { create: true })
     const stream = await handle.createWritable()
@@ -194,13 +199,53 @@ async function pickAlbum(page: Page, name: string) {
   await expect(page.locator('.dialog')).toBeHidden()
 }
 
-async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
+// Opens the Export dialog of the album shown.
+async function openExport(page: Page) {
   await dismissToast(page)
   await page.locator('[data-action="export-album"]').click()
   await expect(page.locator('.dialog')).toBeVisible()
+}
+
+async function exportAlbum(page: Page, setup: (dialog: Page) => Promise<void>) {
+  await openExport(page)
   await setup(page)
   await page.locator('.dialog').getByRole('button', { name: 'Export' }).click()
   await expect(page.locator('.toast')).toContainText('Exported')
+}
+
+// Chooses `path` of the private file system as the folder in the open
+// Export dialog.
+async function chooseFolder(page: Page, path: string[]) {
+  await setPickPath(page, path)
+  const dialog = page.locator('.dialog')
+  await dialog.getByRole('button', { name: 'Choose…' }).click()
+  await expect(dialog.locator('.form-row', { hasText: 'Folder' })).
+    toContainText(path.at(-1)!)
+}
+
+async function removeFolder(page: Page, name: string) {
+  await page.evaluate(async name => {
+    const root = await navigator.storage.getDirectory()
+    await root.removeEntry(name, { recursive: true })
+  }, name)
+}
+
+// Makes the folder `name` ask for access again, as after a browser
+// restart, and refuses it; `window.asked` lists the folders asked for.
+async function refuseAccess(page: Page, name: string) {
+  await page.evaluate(name => {
+    const asked: string[] = []
+    const query = FileSystemHandle.prototype.queryPermission
+    Object.assign(window, { asked })
+    FileSystemHandle.prototype.queryPermission = function (options) {
+      if (this.name === name) return Promise.resolve('prompt')
+      return query.call(this, options)
+    }
+    FileSystemHandle.prototype.requestPermission = function () {
+      asked.push(this.name)
+      return Promise.resolve(this.name === name ? 'denied' : 'granted')
+    }
+  }, name)
 }
 
 // ─── Flows ───────────────────────────────────────────────────────────
@@ -356,6 +401,132 @@ test('keeps what an export recorded through undo', async ({ page }) => {
   })
   expect(await listFiles(page, EXPORTS)).
     toEqual(['Rome-001.jpg', 'Rome-002.jpg'])
+})
+
+test('exports an album into the folder picked for it', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const row = dialog.locator('.form-row', { hasText: 'Folder' })
+  const toast = page.locator('.toast')
+  const files = (n: number) =>
+    [1, 2, 3, 4].slice(0, n).map(i => `Rome 2026-00${i}.jpg`)
+  const remove = async (name: string, left: number) => {
+    await cell(page, name).click()
+    await page.keyboard.press('Delete')
+    await expect(page.locator('.cell')).toHaveCount(left)
+  }
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg', 'e2e-d.jpg'])
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome 2026')
+  await page.locator('[data-drop-album]', { hasText: 'Rome 2026' }).click()
+
+  // The files go straight into the folder: one of the same name there is
+  // overwritten, the user's own stays, and Exports is never made.
+  await writeFile(page, ['Holiday', 'Rome 2026-001.jpg'], 'old')
+  await writeFile(page, ['Holiday', 'notes.txt'], 'mine')
+  await exportAlbum(page, async () => {
+    await expect(row).toContainText('Exports/Rome 2026 in the library folder')
+    await expect(row.getByRole('button')).toHaveText(['Choose…'])
+    await chooseFolder(page, ['Holiday'])
+    await expect(row.getByRole('button')).
+      toHaveText(['Choose…', 'Use library folder'])
+  })
+  await expect(toast).toHaveText('Exported 4 files to Holiday.')
+  expect(await listFiles(page, ['Holiday'])).toEqual([...files(4), 'notes.txt'])
+  const first = await readFile(page, ['Holiday', 'Rome 2026-001.jpg'])
+  expect(jpegInfo(first)).toMatchObject({ width: 320, height: 240 })
+  expect(await listFiles(page, ['library'])).toEqual(['.library'])
+
+  // A re-export replaces the files of the last one, also after a reload.
+  await remove('e2e-d.jpg', 3)
+  await exportAlbum(page, async () => {})
+  expect(await listFiles(page, ['Holiday'])).toEqual([...files(3), 'notes.txt'])
+  await saved(page)
+  await page.reload()
+  await page.locator('[data-drop-album]', { hasText: 'Rome 2026' }).click()
+  await remove('e2e-c.jpg', 2)
+  await exportAlbum(page, async () => {
+    await expect(row).toContainText('Holiday')
+  })
+  expect(await listFiles(page, ['Holiday'])).toEqual([...files(2), 'notes.txt'])
+
+  // Cancel keeps the album's folder. Another folder takes the next
+  // export, and the files of the last one stay where they are.
+  await openExport(page)
+  await chooseFolder(page, ['Beach'])
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await exportAlbum(page, async () => {
+    await expect(row).toContainText('Holiday')
+    await chooseFolder(page, ['Beach'])
+  })
+  expect(await listFiles(page, ['Beach'])).toEqual(files(2))
+  expect(await listFiles(page, ['Holiday'])).toEqual([...files(2), 'notes.txt'])
+
+  // Choosing the album's folder again keeps replacing its files.
+  await remove('e2e-b.jpg', 1)
+  await exportAlbum(page, () => chooseFolder(page, ['Beach']))
+  expect(await listFiles(page, ['Beach'])).toEqual(files(1))
+
+  // Back to the library folder; Beach keeps the last export's file.
+  await exportAlbum(page, async () => {
+    await row.getByRole('button', { name: 'Use library folder' }).click()
+    await expect(row).toContainText('Exports/Rome 2026 in the library folder')
+    await expect(row.getByRole('button')).toHaveText(['Choose…'])
+  })
+  await expect(toast).toHaveText('Exported 1 file to Exports/Rome 2026.')
+  expect(await listFiles(page, EXPORTS)).toEqual(files(1))
+  expect(await listFiles(page, ['Beach'])).toEqual(files(1))
+})
+
+test('skips an album whose folder cannot be opened', async ({ page }) => {
+  const dialog = page.locator('.dialog')
+  const toast = page.locator('.toast')
+  const trip = page.locator('[data-drop-album]', { hasText: 'Trip' })
+  const again = 'Choose it again in the Export dialog.'
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-b.jpg').click({ modifiers: ['Control'] })
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome 2026')
+  await cell(page, 'e2e-c.jpg').click()
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Trip')
+  await trip.click()
+  await exportAlbum(page, () => chooseFolder(page, ['Holiday']))
+  expect(await listFiles(page, ['Holiday'])).toEqual(['Trip-001.jpg'])
+
+  // Several albums: no folder to choose. The one whose folder is gone
+  // is named and skipped; the other still exports.
+  await removeFolder(page, 'Holiday')
+  await dismissToast(page)
+  await page.getByTitle('Export all albums').click()
+  await expect(dialog.locator('.form-note').last()).
+    toHaveText('Each album is saved to its own folder.')
+  await expect(dialog.locator('.form-row', { hasText: 'Folder' })).
+    toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Export' }).click()
+  const skipped = `Could not open the folder Holiday. ${again}`
+  await expect(toast).
+    toHaveText(`Exported 2 files to Exports/Rome 2026. ${skipped}`)
+  expect(await listFiles(page, ['library', 'Exports'])).toEqual(['Rome 2026'])
+  expect(await listFiles(page, EXPORTS)).
+    toEqual(['Rome 2026-001.jpg', 'Rome 2026-002.jpg'])
+
+  // A folder whose access is refused when Export asks again.
+  await exportAlbum(page, () => chooseFolder(page, ['Locked']))
+  expect(await listFiles(page, ['Locked'])).toEqual(['Trip-001.jpg'])
+  await refuseAccess(page, 'Locked')
+  await openExport(page)
+  await dialog.getByRole('button', { name: 'Export' }).click()
+  await expect(toast).
+    toHaveText(`Could not open the folder Locked. ${again}`)
+  const asked = await page.evaluate(() => {
+    return (window as unknown as { asked: string[] }).asked
+  })
+  expect(asked).toEqual(['Locked'])
+  expect(await listFiles(page, ['Locked'])).toEqual(['Trip-001.jpg'])
 })
 
 test('selects with a rectangle and runs Auto on it', async ({ page }) => {

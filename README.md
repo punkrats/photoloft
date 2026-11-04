@@ -21,7 +21,8 @@ project. Its header lists how to remove both.
 
 On first start, pick an empty folder such as `~/Pictures/Photoloft`.
 Photoloft keeps imported photos, edits and albums in its hidden
-`.library` folder there and writes exports to `Exports/<album>/`.
+`.library` folder there and writes exports to `Exports/<album>/`,
+unless an album has a folder of its own.
 
 - Import folder takes a folder with all its subfolders; Import photos
   takes single files. Dropping files or folders works too.
@@ -51,6 +52,14 @@ Photoloft keeps imported photos, edits and albums in its hidden
   extension, and a preview shows the first and last name. One Ctrl+Z
   undoes it. Double-clicking the name in the editor still renames that
   photo in place.
+- Folder in an album's Export dialog: Choose… picks a folder for that
+  album, and its exports go straight into it, replacing files of the
+  same name; Use library folder goes back to `Exports/<album>/`. The
+  choice counts once Export is pressed. Exporting again into the same
+  folder replaces the files of the last export there; after a switch,
+  they stay where they are. When the folder is gone or access is
+  refused, that album is skipped and the toast names the folder to
+  choose again. Exporting several albums sends each to its own folder.
 - Renames and album exports with photo names give each name once, case
   ignored: the first of equal names keeps it, and each repeat gets the
   lowest free -2, -3, skipping any name already in the list.

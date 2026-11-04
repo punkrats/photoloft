@@ -6,7 +6,9 @@ import type { Progress } from './state'
 
 // `seq` numbers the saves and `repairs` names the one-time repairs the
 // library has had. Both are saved beside the library, outside the
-// snapshots undo restores.
+// snapshots undo restores. `folders` holds the folder picked for each
+// album's exports, by album id; handles cannot go into the library
+// file, so they are kept in IndexedDB (`saveAlbumFolders`).
 export type Dirs = {
   root: FileSystemDirectoryHandle
   data: FileSystemDirectoryHandle
@@ -15,6 +17,7 @@ export type Dirs = {
   backups: FileSystemDirectoryHandle
   seq: number
   repairs: string[]
+  folders: Record<string, FileSystemDirectoryHandle>
 }
 
 // These keep the app's former name on purpose: existing installs find
@@ -23,8 +26,11 @@ const DB_NAME = 'lightbox'
 const LIBRARY_PICKER = 'lightbox-library'
 const IMPORT_PICKER = 'lightbox-import'
 
+const EXPORT_PICKER = 'photoloft-export'
+
 const STORE = 'handles'
 const HANDLE_KEY = 'library'
+const FOLDERS_KEY = 'export-folders'
 const SLOTS = ['library-a.json', 'library-b.json']
 const LEGACY_FILE = 'library.json'
 const BACKUPS_KEPT = 10
@@ -83,6 +89,69 @@ function request<T>(req: IDBRequest<T>) {
   })
 }
 
+// ─── Album export folders ────────────────────────────────────────────
+
+// What IndexedDB keeps of the album folders: one entry per library
+// folder, told apart with `isSameEntry`, so a library never sees the
+// folders of another, a copy of it with the same album ids included.
+type FolderEntry = {
+  library: FileSystemDirectoryHandle
+  folders: Record<string, FileSystemDirectoryHandle>
+}
+
+export async function chooseExportFolder() {
+  const options = { id: EXPORT_PICKER, startIn: 'pictures', ...WRITE }
+  return window.showDirectoryPicker(options as DirectoryPickerOptions)
+}
+
+async function rememberedFolders(root: FileSystemDirectoryHandle) {
+  try {
+    for (const entry of await folderEntries()) {
+      if (await entry.library.isSameEntry(root)) return entry.folders
+    }
+  } catch {
+    // Unreadable; albums with a picked folder ask for it again.
+  }
+  return {}
+}
+
+// Replaces this library's entry.
+export async function saveAlbumFolders(dirs: Dirs) {
+  try {
+    const others: FolderEntry[] = []
+    for (const entry of await folderEntries()) {
+      if (!(await entry.library.isSameEntry(dirs.root))) others.push(entry)
+    }
+    const entries = [...others, { library: dirs.root, folders: dirs.folders }]
+    const db = await openDb()
+    const tx = db.transaction(STORE, 'readwrite')
+    await request(tx.objectStore(STORE).put(entries, FOLDERS_KEY))
+  } catch {
+    // Only the next session misses it: its albums with a picked folder
+    // ask for it again.
+  }
+}
+
+async function folderEntries() {
+  const db = await openDb()
+  const get = db.transaction(STORE).objectStore(STORE).get(FOLDERS_KEY)
+  return (await request<FolderEntry[] | undefined>(get)) ?? []
+}
+
+// Whether an export can go into the folder: access granted, asked for
+// when the browser has to (which needs a user gesture), and the folder
+// still there. A removed folder keeps its grant, so one step through
+// its entries tells.
+export async function openFolder(handle: FileSystemDirectoryHandle) {
+  try {
+    if (!(await grantAccess(handle))) return false
+    await handle.values().next()
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ─── Library file ────────────────────────────────────────────────────
 
 export async function openLibrary(root: FileSystemDirectoryHandle) {
@@ -94,7 +163,8 @@ export async function openLibrary(root: FileSystemDirectoryHandle) {
     thumbs: await data.getDirectoryHandle('thumbs', { create: true }),
     backups: await data.getDirectoryHandle('backups', { create: true }),
     seq: 0,
-    repairs: []
+    repairs: [],
+    folders: await rememberedFolders(root)
   }
 
   const files = await readAll(data, [...SLOTS, LEGACY_FILE])

@@ -3,10 +3,11 @@ import {
   addPhotos, addToAlbum, albumsByName, createAlbum, deleteAlbum,
   emptyLibrary, emptyTrash, fixTaken, libraryCounts, migrate, moveInAlbum,
   pickLibrary, removeFromAlbum, renameAlbum, renamePhoto, renamePhotos,
-  restorePhotos, setAlbumExportName, setAlbumSort, setEdits, setLastImport,
-  setMeta, setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
-  albumSections, notInAlbums, draggedTrim, markedTrim, MIN_TRIM, setTrim,
-  trimRange, type Library, type Photo, type Trim, type VideoInfo
+  restorePhotos, setAlbumExportFolder, setAlbumExportName, setAlbumSort,
+  setEdits, setLastImport, setMeta, setPhotoSizes, retime, toggleStars,
+  trashPhotos, viewPhotos, albumSections, notInAlbums, draggedTrim,
+  markedTrim, MIN_TRIM, setTrim, trimRange, type Library, type Photo,
+  type Trim, type VideoInfo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -115,6 +116,14 @@ describe('albums', () => {
 
     lib = renameAlbum(lib, 'al1', 'Rome 2026')
     expect(album(lib).exportName ?? album(lib).name).toBe('Rome 2026')
+  })
+
+  it('remembers the folder picked for the exports, and forgets it', () => {
+    let lib = setAlbumExportFolder(sample(), 'al1', 'Holiday')
+    expect(album(lib).exportFolder).toBe('Holiday')
+
+    lib = setAlbumExportFolder(lib, 'al1', null)
+    expect('exportFolder' in album(lib)).toBe(false)
   })
 
   it('lists albums A to Z, numbers naturally', () => {
@@ -795,6 +804,34 @@ describe('migrate', () => {
       { start: 2 }, null, 'all'
     ]
     for (const trim of dropped) expect(saved(trim)).toBeUndefined()
+  })
+
+  it('reads export records, a picked folder as null', () => {
+    const files = ['Rome-001.jpg']
+    const lib = migrate({
+      exports: {
+        old: { folder: 'Rome', files },
+        picked: { folder: null, files },
+        blank: { folder: '', files },
+        broken: { folder: 3, files }
+      }
+    })
+    expect(lib.exports).toEqual({
+      old: { folder: 'Rome', files },
+      picked: { folder: null, files }
+    })
+  })
+
+  it('keeps the name of an album\'s picked export folder', () => {
+    const lib = migrate({
+      albums: [
+        { id: 'a', name: 'A', exportFolder: 'Holiday' },
+        { id: 'b', name: 'B', exportFolder: '' },
+        { id: 'c', name: 'C', exportFolder: 7 }
+      ]
+    })
+    expect(lib.albums.map(a => a.exportFolder)).
+      toEqual(['Holiday', undefined, undefined])
   })
 
   it('rejects data from a newer version', () => {

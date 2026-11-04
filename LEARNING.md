@@ -29,6 +29,18 @@
   grants per origin and path. IndexedDB is per origin too. Renaming
   a picker id loses its start folder; changing the port loses all of
   it.
+- A directory handle outlives its folder: after the folder is removed,
+  `queryPermission` still answers granted, while `values().next()` and
+  `getFileHandle(name, { create: true })` reject with NotFoundError.
+  Step once through `values()` to tell whether a picked folder is still
+  there.
+- `isSameEntry` works across an IndexedDB round trip and compares by
+  path: a folder removed and made again at the same path is the same
+  entry, and the old handle works again. That makes it usable to find
+  a library's own entry in a list stored in IndexedDB.
+- A word with no break opportunity (a folder name with underscores)
+  keeps a flex item at its full width and overflows the row;
+  `overflow-wrap: anywhere` lets the item shrink and break it.
 - `data-foo` without a value gives `el.dataset.foo === ''`, which is
   falsy. Test boolean data attributes with `el.matches('[data-foo]')`
   or `'foo' in el.dataset`.
@@ -80,7 +92,9 @@
   (SwiftShader, MAX_TEXTURE_SIZE 8192). Tests then never touch the GPU.
 - The native folder picker cannot be driven; stub
   `window.showDirectoryPicker` with an OPFS directory in
-  `page.addInitScript`. OPFS handles have the same API.
+  `page.addInitScript`. OPFS handles have the same API. They are always
+  granted, so a refusal is simulated by replacing
+  `FileSystemHandle.prototype.queryPermission` and `requestPermission`.
 - An icon font's glyph is part of a button's accessible name
   (" Export"), so `getByRole('button', { name: 'Export', exact: true })`
   misses it. Without `exact` the name matches as a substring, also the

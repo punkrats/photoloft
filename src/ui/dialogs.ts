@@ -231,9 +231,6 @@ function exportForm(lib: Library, form: ExportForm) {
   const heading = single
     ? `Export "${single.name}"`
     : `Export ${albums.length} albums`
-  const folder = single
-    ? `Exports/${sanitizeName(single.name)}/`
-    : 'Exports/<album>/'
 
   return html`
     <h3 class="dialog-title">${heading}</h3>
@@ -314,13 +311,37 @@ function exportForm(lib: Library, form: ExportForm) {
           </p>
         `
         : nothing}
-      <p class="form-note">Saved to ${folder} in your library folder.</p>
+      ${single
+        ? folderRow(single, form)
+        : html`<p class="form-note">Each album is saved to its own folder.</p>`}
     </div>
     <div class="dialog-buttons">
       <button class="button" data-action="close-dialog">Cancel</button>
       <button class="button primary" data-action="run-export">
         <i class="icon-download"></i> Export
       </button>
+    </div>
+  `
+}
+
+// Where the album's files go: the folder picked for it, or its folder
+// under Exports.
+function folderRow(album: Album, form: ExportForm) {
+  const exports = `Exports/${sanitizeName(album.name)} in the library folder`
+  return html`
+    <div class="form-row">
+      <span class="form-label">Folder</span>
+      <span class="form-text">${form.folder ?? exports}</span>
+      <button class="button" data-action="export-choose-folder">
+        Choose…
+      </button>
+      ${form.folder
+        ? html`
+          <button class="button" data-action="export-library-folder">
+            Use library folder
+          </button>
+        `
+        : nothing}
     </div>
   `
 }

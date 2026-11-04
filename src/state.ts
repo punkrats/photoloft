@@ -16,6 +16,10 @@ import type { Histogram } from './ui/histogram'
 export type Mode = 'grid' | 'edit' | 'crop'
 type Counts = ReturnType<typeof libraryCounts>
 
+// The Export dialog. `folder` is the name of the folder picked for the
+// album, or null for Exports in the library folder; `picked` is a
+// folder newly chosen in the dialog. Like the other fields they take
+// effect when Export is pressed.
 export type ExportForm = {
   albumIds: string[]
   name: string
@@ -28,6 +32,8 @@ export type ExportForm = {
   quality: number
   stripGps: boolean
   videoSide: string
+  folder: string | null
+  picked: FileSystemDirectoryHandle | null
 }
 
 export type InfoField =

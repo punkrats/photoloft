@@ -25,8 +25,8 @@ import {
   viewIds, type AlbumPick, type AppState, type ExportForm, type InfoField
 } from './state'
 import {
-  chooseImportFolder, chooseLibrary, deletePhotoFiles, grantAccess,
-  openLibrary, readOriginal, rememberLibrary
+  chooseExportFolder, chooseImportFolder, chooseLibrary, deletePhotoFiles,
+  grantAccess, openLibrary, readOriginal, rememberLibrary
 } from './storage'
 import { headerTaken, localIso, olympusTaken, readMoov } from './mp4'
 import {
@@ -142,6 +142,27 @@ async function chooseFolder(state: AppState) {
     state.error = String(error)
     render(state)
   }
+}
+
+// The folder becomes the album's when Export is pressed. Choosing the
+// album's own folder again keeps its handle, and with it the cleanup of
+// the last export there.
+async function chooseAlbumFolder(state: AppState) {
+  const d = state.dialog
+  if (d?.kind !== 'export' || !state.dirs) return
+
+  const form = d.form
+  const own = state.dirs.folders[form.albumIds[0]]
+  try {
+    const handle = await chooseExportFolder()
+    const same = own ? await own.isSameEntry(handle) : false
+    form.folder = handle.name
+    form.picked = same ? null : handle
+  } catch (error) {
+    if ((error as DOMException).name === 'AbortError') return
+    showToast(state, `Could not open the folder: ${String(error)}`)
+  }
+  render(state)
 }
 
 // ─── Selection ───────────────────────────────────────────────────────
@@ -564,6 +585,12 @@ export const clicks: Record<string, Handler> = {
   'export-naming': (state, data) => {
     if (state.dialog?.kind !== 'export') return
     state.dialog.form.naming = data.value as ExportForm['naming']
+  },
+  'export-choose-folder': state => void chooseAlbumFolder(state),
+  'export-library-folder': state => {
+    if (state.dialog?.kind !== 'export') return
+    state.dialog.form.folder = null
+    state.dialog.form.picked = null
   },
   'run-export': state => {
     const d = state.dialog

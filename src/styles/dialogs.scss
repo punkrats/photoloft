@@ -118,6 +118,12 @@ $indent: calc(#{$label-width} + var(--space-2));
   font-variant-numeric: tabular-nums;
 }
 
+// Text in a row, such as a folder name: a long word breaks, so the row
+// keeps to the dialog's width.
+.form-text {
+  overflow-wrap: anywhere;
+}
+
 .form-note {
   margin: 0;
   padding-left: $indent;
