@@ -134,3 +134,31 @@ icon font after adding an icon to `src/styles/icons.scss`.
   state
 - `src/ui/` renders with lit-html, one template module per area, each
   with a matching stylesheet in `src/styles/`
+
+## License
+
+Photoloft is released under the MIT license; see [LICENSE](LICENSE).
+
+## Credits
+
+The built page bundles three projects under their own licenses;
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) holds their full
+license texts.
+
+- [Leaflet](https://leafletjs.com) draws the map in the Info dialog:
+  BSD-2-Clause, Copyright (c) 2010-2023 Volodymyr Agafonkin and
+  Copyright (c) 2010-2011 CloudMade.
+- [lit-html](https://lit.dev) renders the interface: BSD-3-Clause,
+  Copyright (c) 2017 Google LLC.
+- [Lucide](https://lucide.dev) draws the icons, from the subset font
+  `src/assets/icons.woff2` that `scripts/subset-icons.sh` builds: ISC,
+  Copyright (c) 2026 Lucide Icons and Contributors. The icons Lucide
+  derives from [Feather](https://feathericons.com), several of them in
+  the subset, are MIT, Copyright (c) 2013-present Cole Bemis.
+
+The map tiles (`tile.openstreetmap.org`) and the place search
+(Nominatim) come from [OpenStreetMap](https://www.openstreetmap.org)
+at run time. The map data is © OpenStreetMap contributors under the
+[Open Database License](https://opendatacommons.org/licenses/odbl/)
+(ODbL), which requires attribution: the map shows "© OpenStreetMap
+contributors", linked to <https://www.openstreetmap.org/copyright>.

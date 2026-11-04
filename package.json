@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "description": "Simple browser photo editor: albums, colour, crop, export",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/punkrats/photoloft.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
