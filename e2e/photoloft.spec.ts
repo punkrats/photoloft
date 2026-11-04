@@ -302,6 +302,8 @@ test('imports, sorts into an album, edits and exports', async ({ page }) => {
   await cell(page, 'e2e-b.jpg').click()
   await page.keyboard.press('Delete')
   await expect(page.locator('.cell')).toHaveCount(2)
+  await expect(page.locator('.toast')).
+    toHaveText('Removed 1 photo from Rome 2026. Ctrl+Z undoes it.')
   await exportAlbum(page, async () => {
     await page.locator('[data-field="limit"]').selectOption('none')
   })
@@ -379,6 +381,8 @@ test('trashes, undoes, restores and empties the trash', async ({ page }) => {
   await cell(page, 'e2e-a.jpg').click()
   await page.keyboard.press('Delete')
   await expect(page.locator('.cell')).toHaveCount(1)
+  await expect(page.locator('.toast')).
+    toHaveText('Moved 1 photo to the Trash. Ctrl+Z undoes it.')
   await page.keyboard.press('Control+z')
   await expect(page.locator('.cell')).toHaveCount(2)
 

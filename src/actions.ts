@@ -236,14 +236,15 @@ export function removeSelection(state: AppState) {
 
   if (state.view.kind === 'albums') return
 
+  const count = `${ids.length} ${plural(ids.length)}`
   const album = currentAlbum(state)
   if (album) {
     commit(state, removeFromAlbum(lib, album.id, ids))
-    const text = `Removed ${ids.length} from ${album.name}.`
+    const text = `Removed ${count} from ${album.name}.`
     showToast(state, `${text} Ctrl+Z undoes it.`)
   } else {
     commit(state, trashPhotos(lib, ids, new Date().toISOString()))
-    showToast(state, `Moved ${ids.length} to the trash. Ctrl+Z undoes it.`)
+    showToast(state, `Moved ${count} to the Trash. Ctrl+Z undoes it.`)
   }
   if (state.mode !== 'grid') closeEditor(state)
   render(state)
