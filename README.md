@@ -5,6 +5,11 @@ import photos and videos, sort them into albums, fix colour, tone and
 angle, and export each album as named, size-limited files. Everything
 stays on your disk.
 
+I moved from macOS to Omarchy at the end of 2025 and have missed Apple's
+Photos app ever since. LightCraft, a Lightroom-style app, was
+underwhelming and too slow. I wanted a simple archive to organise and
+improve my photos and videos, so I built Photoloft.
+
 ![Photoloft's Starred view with one photo selected](docs/screenshot.jpg)
 
 ## Install
