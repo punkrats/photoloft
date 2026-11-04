@@ -381,7 +381,7 @@ function editorKey(state: AppState, key: string) {
     ArrowLeft: () => step(state, -1),
     ArrowRight: () => step(state, 1),
     g: () => clicks['open-picker'](state, {}, new Event('key')),
-    r: () => clicks['crop-tool'](state, {}, new Event('key')),
+    c: () => clicks['crop-tool'](state, {}, new Event('key')),
     z: () => clicks['toggle-zoom'](state, {}, new Event('key')),
     s: () => clicks.star(state, {}, new Event('key')),
     '\\': () => {

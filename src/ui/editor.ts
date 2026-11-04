@@ -98,7 +98,7 @@ function bar(state: AppState, lib: Library, id: string) {
         'Before and after (\\)')}
       ${toggle(state.zoom, 'toggle-zoom', 'icon-zoom-in', 'Zoom to 100 % (Z)')}
       ${toggle(state.mode === 'crop', 'crop-tool', 'icon-crop',
-        'Crop and straighten (R)')}
+        'Crop and straighten (C)')}
       ${historyButtons(state)}
     </header>
   `

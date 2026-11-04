@@ -329,7 +329,7 @@ test('crops to a square and rotates', async ({ page }) => {
   await cell(page, 'e2e-a.jpg').dblclick()
   await expect(page.locator('.stage')).not.toHaveClass(/loading/)
 
-  await page.keyboard.press('r')
+  await page.keyboard.press('c')
   await expect(page.locator('.crop-box')).toBeVisible()
   await page.getByRole('button', { name: '1:1' }).click()
   await page.locator('input[data-key="angle"]').fill('10')
@@ -345,7 +345,7 @@ test('crops to a square and rotates', async ({ page }) => {
   }
   await expect.poll(shape, { timeout: 10_000 }).toBeCloseTo(1, 1)
 
-  await page.keyboard.press('r')
+  await page.keyboard.press('c')
   await page.getByTitle('Rotate right').click()
   await page.getByRole('button', { name: 'Done' }).click()
   await expect.poll(shape, { timeout: 10_000 }).toBeLessThan(1)
@@ -733,10 +733,14 @@ test('opens the selected photo in the editor with Space', async ({ page }) => {
   const selected = page.locator('.cell.selected .cell-file')
   await expect(selected).toHaveText('e2e-c.jpg')
 
-  // In the crop tool Space leaves a photo alone; Esc goes back to
-  // editing, and Space from there to the grid.
+  // C opens and leaves the crop tool. There Space leaves a photo alone;
+  // Esc goes back to editing, and Space from there to the grid.
   await page.keyboard.press(' ')
-  await page.keyboard.press('r')
+  await page.keyboard.press('c')
+  await expect(app).toHaveAttribute('data-mode', 'crop')
+  await page.keyboard.press('c')
+  await expect(app).toHaveAttribute('data-mode', 'edit')
+  await page.keyboard.press('c')
   await expect(app).toHaveAttribute('data-mode', 'crop')
   await page.keyboard.press(' ')
   await page.keyboard.press('Escape')

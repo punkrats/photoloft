@@ -53,7 +53,7 @@ const SHORTCUTS: [string, string][] = [
   ['Space', 'Open the photo; Space again closes, or plays a video'],
   ['Enter or double-click', 'Edit photo'],
   ['Left / Right', 'Previous / next photo'],
-  ['R', 'Crop and straighten'],
+  ['C', 'Crop and straighten'],
   ['\\', 'Before and after'],
   ['Z', 'Zoom to 100 %'],
   ['Ctrl+Shift+C / V', 'Copy / paste settings'],
