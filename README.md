@@ -8,8 +8,8 @@ stays on your disk.
 ## Use
 
 Photoloft runs in Chromium, Omarchy's browser. Building it needs
-Node.js; its small local service needs Python 3, and video exports need
-ffmpeg.
+Node.js; its small local service needs Python 3, video exports need
+ffmpeg, and the install script needs ImageMagick.
 
 ```
 npm install
