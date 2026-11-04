@@ -1,9 +1,9 @@
 import { commit, redoChange, replaceLibrary, undoChange } from './commit'
 import {
   autoCurrent, autoSelection, autoWhiteBalanceCurrent, closeEditor,
-  copySettings, flip, openPhoto, pasteSettings, resetColour, resetCrop,
-  resetSlider, rotate, seek, setAspect, setSlider, swapOrientation,
-  togglePlay
+  copySettings, dragTrim, flip, openPhoto, pasteSettings, resetColour,
+  resetCrop, resetSlider, resetTrim, rotate, seek, setAspect, setSlider,
+  swapOrientation, togglePlay
 } from './editing'
 import { exportDialog, runExport } from './export'
 import { formatList } from './format'
@@ -13,7 +13,7 @@ import {
   addToAlbum, createAlbum, deleteAlbum, emptyTrash, removeFromAlbum,
   notInAlbums, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
   setAlbumSort, retime, setMeta, setPhotoSizes, toggleStars, trashPhotos,
-  type AlbumSort
+  type AlbumSort, type TrimEdge
 } from './library'
 import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
@@ -492,6 +492,7 @@ export const clicks: Record<string, Handler> = {
   play: state => {
     togglePlay(state)
   },
+  'reset-trim': state => resetTrim(state),
   'auto-wb': state => void autoWhiteBalanceCurrent(state),
   'copy-settings': state => copySettings(state),
   'reset-all': state => resetColour(state),
@@ -554,6 +555,9 @@ export function input(state: AppState, el: HTMLInputElement) {
   }
   if (kind === 'export-field') exportField(state, el)
   if (kind === 'seek') seek(state, Number(el.value))
+  if (kind === 'trim') {
+    dragTrim(state, el.dataset.edge as TrimEdge, Number(el.value))
+  }
   if (kind === 'date-value' && state.dialog?.kind === 'date') {
     state.dialog = { ...state.dialog, value: el.value }
     render(state)

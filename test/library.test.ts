@@ -5,7 +5,8 @@ import {
   removeFromAlbum, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
   setAlbumExportName, setAlbumSort, setEdits, setLastImport, setMeta,
   setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
-  albumSections, notInAlbums, type Library, type Photo
+  albumSections, notInAlbums, draggedTrim, markedTrim, MIN_TRIM, setTrim,
+  trimRange, type Library, type Photo, type Trim, type VideoInfo
 } from '../src/library'
 import { NEUTRAL_EDIT } from '../src/schema'
 
@@ -254,6 +255,81 @@ describe('photos', () => {
     setEdits(before, ['a'], e => ({ ...e, exposure: 1 }))
     trashPhotos(before, ['a'], 'now')
     expect(JSON.stringify(before)).toBe(snapshot)
+  })
+})
+
+describe('trim', () => {
+  const clip = (trim?: Trim): VideoInfo =>
+    trim ? { duration: 10, ext: 'mp4', trim } : { duration: 10, ext: 'mp4' }
+  const withClip = (trim?: Trim) =>
+    addPhotos(sample(), [photo('v', { video: clip(trim) })])
+
+  it('plays the whole clip without a trim', () => {
+    expect(trimRange(clip())).toEqual({ start: 0, end: 10 })
+    expect(trimRange(clip({ start: 2, end: 7 }))).toEqual({ start: 2, end: 7 })
+  })
+
+  it('moves a dragged grip inside the clip, short of the other mark', () => {
+    const video = clip({ start: 2, end: 7 })
+    expect(draggedTrim(video, 'start', 3.5)).toEqual({ start: 3.5, end: 7 })
+    expect(draggedTrim(video, 'start', 6.5)).
+      toEqual({ start: 7 - MIN_TRIM, end: 7 })
+    expect(draggedTrim(video, 'start', -1)).toEqual({ start: 0, end: 7 })
+    expect(draggedTrim(video, 'end', 2.5)).
+      toEqual({ start: 2, end: 2 + MIN_TRIM })
+    expect(draggedTrim(video, 'end', 12)).toEqual({ start: 2, end: 10 })
+  })
+
+  it('marks where the video is, kept inside the clip', () => {
+    expect(markedTrim(clip(), 'start', 3)).toEqual({ start: 3, end: 10 })
+    expect(markedTrim(clip(), 'end', 4)).toEqual({ start: 0, end: 4 })
+    expect(markedTrim(clip(), 'start', 10)).
+      toEqual({ start: 10 - MIN_TRIM, end: 10 })
+    expect(markedTrim(clip(), 'end', 0)).toEqual({ start: 0, end: MIN_TRIM })
+  })
+
+  it('sends the other mark back to its end when a mark crosses it', () => {
+    const video = clip({ start: 2, end: 7 })
+    expect(markedTrim(video, 'start', 8)).toEqual({ start: 8, end: 10 })
+    expect(markedTrim(video, 'start', 6.5)).toEqual({ start: 6.5, end: 10 })
+    expect(markedTrim(video, 'end', 1)).toEqual({ start: 0, end: 1 })
+    expect(markedTrim(video, 'end', 2.5)).toEqual({ start: 0, end: 2.5 })
+  })
+
+  it('keeps marks exactly the minimum apart, whatever the rounding', () => {
+    const video = { ...clip({ start: 0.4, end: 2 }), duration: 2 }
+    expect(markedTrim(video, 'end', 1.4)).toEqual({ start: 0.4, end: 1.4 })
+  })
+
+  it('sets a trim, and removes it for null or the whole clip', () => {
+    const before = withClip()
+    const lib = setTrim(before, 'v', { start: 2, end: 7 })
+    expect(lib.photos.v.video!.trim).toEqual({ start: 2, end: 7 })
+    expect(lib.photos.a).toBe(before.photos.a)
+
+    const whole = setTrim(lib, 'v', { start: 0, end: 10 })
+    expect('trim' in whole.photos.v.video!).toBe(false)
+    expect('trim' in setTrim(lib, 'v', null).photos.v.video!).toBe(false)
+  })
+
+  it('returns the library itself when nothing changes', () => {
+    const trimmed = withClip({ start: 2, end: 7 })
+    expect(setTrim(trimmed, 'v', { start: 2, end: 7 })).toBe(trimmed)
+    const plain = withClip()
+    expect(setTrim(plain, 'v', null)).toBe(plain)
+    expect(setTrim(plain, 'v', { start: 0, end: 10 })).toBe(plain)
+    expect(setTrim(plain, 'a', { start: 2, end: 7 })).toBe(plain)
+    expect(setTrim(plain, 'gone', { start: 2, end: 7 })).toBe(plain)
+  })
+
+  it('cannot trim a clip shorter than the minimum', () => {
+    const video: VideoInfo = { duration: 0.5, ext: 'mp4' }
+    const lib = addPhotos(sample(), [photo('v', { video })])
+    const trims = [
+      draggedTrim(video, 'start', 0.2), draggedTrim(video, 'end', 0.3),
+      markedTrim(video, 'start', 0.2), markedTrim(video, 'end', 0.3)
+    ]
+    for (const trim of trims) expect(setTrim(lib, 'v', trim)).toBe(lib)
   })
 })
 
@@ -646,6 +722,29 @@ describe('migrate', () => {
     expect(lib.photos.b.meta.location).toBeNull()
     expect('location' in lib.photos.c.meta).toBe(false)
     expect(lib.metaDefaults).toEqual({ author: 'Ann' })
+  })
+
+  it('loads a video saved before trims, as the whole clip', () => {
+    const video = { duration: 12.5, ext: 'mov' }
+    const raw = { version: 1, photos: { v: { id: 'v', video } } }
+    expect(migrate(raw).photos.v.video).toEqual(video)
+    expect('trim' in migrate(raw).photos.v.video!).toBe(false)
+  })
+
+  it('keeps a trim that fits the clip and drops the rest', () => {
+    const saved = (trim: unknown) => {
+      const video = { duration: 10, ext: 'mp4', trim }
+      return migrate({ version: 1, photos: { v: { id: 'v', video } } })
+        .photos.v.video!.trim
+    }
+    expect(saved({ start: 2, end: 7.5 })).toEqual({ start: 2, end: 7.5 })
+    expect(saved({ start: 0.4, end: 1.4 })).toEqual({ start: 0.4, end: 1.4 })
+    const dropped = [
+      { start: 0, end: 10 }, { start: -1, end: 5 }, { start: 2, end: 11 },
+      { start: 5, end: 5.5 }, { start: 7, end: 2 }, { start: '2', end: 7 },
+      { start: 2 }, null, 'all'
+    ]
+    for (const trim of dropped) expect(saved(trim)).toBeUndefined()
   })
 
   it('rejects data from a newer version', () => {

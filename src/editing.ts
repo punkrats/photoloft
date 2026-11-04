@@ -8,7 +8,9 @@ import {
 import {
   closeVideo, decode, openVideo, probeVideo, samplePixels, videoFrame
 } from './images'
-import { setEdits } from './library'
+import {
+  draggedTrim, markedTrim, setEdits, setTrim, trimRange, type TrimEdge
+} from './library'
 import { Renderer } from './pipeline'
 import { render } from './render'
 import {
@@ -122,6 +124,7 @@ async function loadVideo(state: AppState, id: string, file: Blob) {
   editor.video = video
   editor.time = 0
   const update = () => {
+    stopAtOut(state, id, video)
     editor.playing = !video.paused && !video.ended
     editor.time = video.currentTime
     render(state)
@@ -142,8 +145,17 @@ function followFrames(state: AppState, id: string, video: HTMLVideoElement) {
   video.requestVideoFrameCallback(() => {
     if (state.editor.video !== video) return
     void grab(state, id, video)
+    stopAtOut(state, id, video)
     if (!video.paused) followFrames(state, id, video)
   })
+}
+
+// Playback pauses once it reaches the out mark. Checked on every frame,
+// and on each time update for a hidden page, which gets no frames.
+function stopAtOut(state: AppState, id: string, video: HTMLVideoElement) {
+  const info = state.library?.photos[id]?.video
+  if (!info || video.paused) return
+  if (video.currentTime >= trimRange(info).end) video.pause()
 }
 
 async function grab(state: AppState, id: string, video: HTMLVideoElement) {
@@ -165,18 +177,63 @@ function releaseVideo(state: AppState) {
   state.editor.playing = false
 }
 
+// Play starts at the in mark from a position before it, or at or past
+// the out mark.
 export function togglePlay(state: AppState) {
   const video = state.editor.video
-  if (!video) return false
+  const info = currentPhoto(state)?.video
+  if (!video || !info) return false
 
-  if (video.paused) void video.play()
-  else video.pause()
+  if (!video.paused) {
+    video.pause()
+    return true
+  }
+  const { start, end } = trimRange(info)
+  const at = video.currentTime
+  if (at < start || at >= end) video.currentTime = start
+  void video.play()
   return true
 }
 
 export function seek(state: AppState, time: number) {
   const video = state.editor.video
   if (video) video.currentTime = time
+}
+
+// The digit keys: 0 to 9 tenths of the whole clip.
+export function jumpTo(state: AppState, share: number) {
+  const info = currentPhoto(state)?.video
+  if (info) seek(state, info.duration * share)
+}
+
+// A grip moves its mark and shows the frame there; the ticks of one
+// drag make one undo step. Held at its limit, the grip changes nothing
+// and `commit` draws nothing, so the render here puts it back in the
+// same frame, also while the video is still loading and cannot seek.
+export function dragTrim(state: AppState, edge: TrimEdge, at: number) {
+  const photo = currentPhoto(state)
+  if (!photo?.video) return
+
+  const trim = draggedTrim(photo.video, edge, at)
+  const tag = `trim:${photo.id}:${edge}`
+  commit(state, setTrim(state.library!, photo.id, trim), tag)
+  seek(state, trim[edge])
+  render(state)
+}
+
+// I and O: the mark goes where the video is.
+export function markTrim(state: AppState, edge: TrimEdge) {
+  const photo = currentPhoto(state)
+  const video = state.editor.video
+  if (!photo?.video || !video) return
+
+  const trim = markedTrim(photo.video, edge, video.currentTime)
+  commit(state, setTrim(state.library!, photo.id, trim))
+}
+
+export function resetTrim(state: AppState) {
+  const photo = currentPhoto(state)
+  if (photo) commit(state, setTrim(state.library!, photo.id, null))
 }
 
 // ─── Adjustments ─────────────────────────────────────────────────────

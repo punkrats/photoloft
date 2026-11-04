@@ -18,9 +18,21 @@ export type Photo = {
   meta: Meta
 }
 
-export type VideoInfo = { duration: number, ext: VideoExt }
+// The file's length and type, and the part of it that plays and
+// exports: `trim`, in seconds of the original, or the whole clip when
+// absent.
+export type VideoInfo = { duration: number, ext: VideoExt, trim?: Trim }
 export type VideoExt = 'mp4' | 'mov' | 'm4v'
 export const VIDEO_EXTS: VideoExt[] = ['mp4', 'mov', 'm4v']
+
+export type Trim = { start: number, end: number }
+export type TrimEdge = keyof Trim
+
+// The shortest part of a clip a trim keeps, in seconds.
+export const MIN_TRIM = 1
+
+// Slack for sums of decimals: 1.4 - 0.4 is 0.9999999999999999.
+const SLACK = 1e-6
 
 // `photos` is the custom order; it stays untouched while the album is
 // sorted, so switching back to 'custom' restores it.
@@ -164,6 +176,50 @@ export function toggleStars(lib: Library, ids: string[]) {
 // File name of the original in the library folder.
 export function originalName(photo: Photo) {
   return `${photo.id}.${photo.video?.ext ?? 'jpg'}`
+}
+
+export function trimRange(video: VideoInfo): Trim {
+  return video.trim ?? { start: 0, end: video.duration }
+}
+
+// A dragged grip moves inside the clip and stops MIN_TRIM short of the
+// other mark.
+export function draggedTrim(video: VideoInfo, edge: TrimEdge, at: number) {
+  const { start, end } = trimRange(video)
+  if (edge === 'start') return { start: clamp(at, 0, end - MIN_TRIM), end }
+  return { start, end: clamp(at, start + MIN_TRIM, video.duration) }
+}
+
+// I or O puts its mark where the video is, with room for MIN_TRIM left
+// in the clip. When the other mark is closer than that, or crossed, it
+// goes back to its end of the clip.
+export function markedTrim(video: VideoInfo, edge: TrimEdge, at: number) {
+  const { start, end } = trimRange(video)
+  const duration = video.duration
+  const short = (length: number) => length < MIN_TRIM - SLACK
+
+  if (edge === 'start') {
+    const mark = clamp(at, 0, duration - MIN_TRIM)
+    return { start: mark, end: short(end - mark) ? duration : end }
+  }
+  const mark = clamp(at, MIN_TRIM, duration)
+  return { start: short(mark - start) ? 0 : start, end: mark }
+}
+
+// Sets the part of a video that plays and exports, as `draggedTrim` and
+// `markedTrim` give it. A trim reaching both ends of the clip, or null,
+// removes it; with no change, or no such video, it returns `lib`.
+export function setTrim(lib: Library, id: string, trim: Trim | null) {
+  const photo = lib.photos[id]
+  if (!photo?.video) return lib
+
+  const { trim: old, ...video } = photo.video
+  const whole = !trim || (trim.start <= 0 && trim.end >= video.duration)
+  if (whole) return old ? withPhotos(lib, [{ ...photo, video }]) : lib
+  if (old?.start === trim.start && old.end === trim.end) return lib
+
+  const kept = { start: trim.start, end: trim.end }
+  return withPhotos(lib, [{ ...photo, video: { ...video, trim: kept } }])
 }
 
 export function setPhotoSizes(lib: Library, sizes: Record<string, number>) {
@@ -586,7 +642,23 @@ function migrateMeta(raw: Raw): Meta {
 
 function migrateVideo(raw: Raw): VideoInfo | null {
   const ext = VIDEO_EXTS.find(e => e === raw.ext)
-  return ext ? { duration: num(raw.duration, 0), ext } : null
+  if (!ext) return null
+
+  const video: VideoInfo = { duration: num(raw.duration, 0), ext }
+  const trim = migrateTrim(record(raw.trim), video.duration)
+  return trim ? { ...video, trim } : video
+}
+
+// A saved trim stays when it lies inside the clip and keeps at least
+// MIN_TRIM of it; one covering the whole clip counts as none.
+function migrateTrim(raw: Raw, duration: number): Trim | null {
+  const { start, end } = raw
+  if (typeof start !== 'number' || typeof end !== 'number') return null
+
+  const inside = start >= 0 && end <= duration
+  const whole = start === 0 && end === duration
+  const long = end - start >= MIN_TRIM - SLACK
+  return inside && long && !whole ? { start, end } : null
 }
 
 function migrateEdit(raw: Raw): Edit {
@@ -661,4 +733,9 @@ function num(value: unknown, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value)
     ? value
     : fallback
+}
+
+// Holds `value` between `low` and `high`; `low` wins when they cross.
+function clamp(value: number, low: number, high: number) {
+  return Math.max(low, Math.min(high, value))
 }

@@ -1217,6 +1217,150 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
   })
 })
 
+test('trims a video with keys and grips', async ({ page }) => {
+  const transport = page.locator('.transport')
+  const bar = page.locator('.transport-bar')
+  const seek = page.locator('.transport-seek')
+  const markIn = page.getByTitle('Mark in (I)')
+  const markOut = page.getByTitle('Mark out (O)')
+  const trimmed = transport.locator('.toolbar-count', { hasText: 'Trimmed' })
+  const reset = transport.getByRole('button', { name: 'Reset trim' })
+  const folder = page.locator('.sidebar-folder')
+  await openLibrary(page)
+  await importPhotos(page, ['clip.mp4', 'VID_20240108_093000.mp4', 'e2e-a.jpg'])
+  await cell(page, 'clip.mp4').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await expect(markIn).toHaveValue('0')
+  await expect(markOut).toHaveValue('2')
+  await expect(trimmed).toHaveCount(0)
+  const height = (await transport.boundingBox())!.height
+
+  // 2 jumps to 20 % and I marks in there; 8 and O mark out at 80 %. The
+  // clock keeps counting the whole clip, the parts outside turn grey.
+  await page.keyboard.press('2')
+  await expect(seek).toHaveValue('0.4')
+  await page.keyboard.press('i')
+  await expect(trimmed).toHaveText('Trimmed to 0:02')
+  await page.keyboard.press('8')
+  await page.keyboard.press('o')
+  await expect(trimmed).toHaveText('Trimmed to 0:01')
+  await expect(markIn).toHaveValue('0.4')
+  await expect(markOut).toHaveValue('1.6')
+  await expect(transport.locator('.toolbar-count').first()).
+    toHaveText('0:02 / 0:02')
+  await expect(bar).toHaveCSS('--in', '0.2')
+  await expect(bar).toHaveCSS('--out', '0.8')
+  await expect(reset).toBeVisible()
+  expect((await transport.boundingBox())!.height).toBe(height)
+
+  // Each mark is one undo step; a mark that changes nothing saves
+  // nothing and leaves no step.
+  await page.keyboard.press('Control+z')
+  await expect(trimmed).toHaveText('Trimmed to 0:02')
+  await page.keyboard.press('Control+z')
+  await expect(trimmed).toHaveCount(0)
+  await page.keyboard.press('Control+Shift+z')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(trimmed).toHaveText('Trimmed to 0:01')
+  await expect(folder).toHaveAttribute('data-saved', 'true')
+  await page.keyboard.press('o')
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(markOut).toHaveValue('2')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(markOut).toHaveValue('1.6')
+
+  // Play from the out mark, or from a grey part, starts at the in mark
+  // and pauses at the out mark.
+  const played = await page.evaluateHandle(() => {
+    const seen: number[] = []
+    const look = () => {
+      const icon = document.querySelector('.transport [data-action="play"] i')
+      const seek = document.querySelector<HTMLInputElement>('.transport-seek')
+      if (icon?.matches('.icon-pause') && seek) seen.push(Number(seek.value))
+      requestAnimationFrame(look)
+    }
+    look()
+    return seen
+  })
+  const play = transport.locator('[data-action="play"] i')
+  for (const key of ['8', '0']) {
+    await page.keyboard.press(key)
+    await played.evaluate(seen => seen.splice(0))
+    await page.keyboard.press('k')
+    await expect(play).toHaveClass('icon-pause')
+    await expect(play).toHaveClass('icon-play')
+    const seen = await played.jsonValue()
+    expect(Math.min(...seen)).toBeGreaterThanOrEqual(0.39)
+    expect(Math.max(...seen)).toBeLessThan(1.8)
+    expect(Number(await seek.inputValue())).toBeGreaterThanOrEqual(1.59)
+  }
+
+  // A grip drags to the start of the clip and shows the frame there; a
+  // grip dragged past the other stops a second short of it. Each drag
+  // is one undo step.
+  await dismissToast(page)
+  const box = (await bar.boundingBox())!
+  const middle = box.y + box.height / 2
+  const at = (share: number) => box.x + 2 + (box.width - 4) * share
+  const drag = async (from: number, to: number) => {
+    await page.mouse.move(at(from), middle)
+    await page.mouse.down()
+    await page.mouse.move(at((from + to) / 2), middle, { steps: 4 })
+    await page.mouse.move(at(to), middle, { steps: 4 })
+    await page.mouse.up()
+  }
+  await drag(0.2, -0.1)
+  await expect(markIn).toHaveValue('0')
+  await expect(seek).toHaveValue('0')
+  await expect(trimmed).toHaveText('Trimmed to 0:02')
+  await drag(0.8, 0)
+  await expect(markOut).toHaveValue('1')
+  await expect(seek).toHaveValue('1')
+  await page.keyboard.press('Control+z')
+  await expect(markOut).toHaveValue('1.6')
+  await page.keyboard.press('Control+z')
+  await expect(markIn).toHaveValue('0.4')
+
+  // Reset trim is one undo step too.
+  await reset.click()
+  await expect(trimmed).toHaveCount(0)
+  await expect(reset).toHaveCount(0)
+  await page.keyboard.press('Control+z')
+  await expect(trimmed).toHaveText('Trimmed to 0:01')
+
+  // Copy and paste settings leave the trims alone.
+  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.editor-name')).
+    toHaveText('VID_20240108_093000.mp4')
+  await page.keyboard.press('Control+Shift+v')
+  await expect(trimmed).toHaveCount(0)
+  await page.keyboard.press('Control+Shift+c')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('Control+Shift+v')
+  await expect(trimmed).toHaveText('Trimmed to 0:01')
+
+  // On a photo the keys do nothing.
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('.editor-name')).toHaveText('e2e-a.jpg')
+  await page.keyboard.press('i')
+  await expect(page.locator('.dialog')).toBeHidden()
+
+  // The grid shows the trimmed length, also after a reload.
+  await page.keyboard.press('Escape')
+  const label = cell(page, 'clip.mp4').locator('.cell-video')
+  await expect(label).toHaveText('0:01')
+  await saved(page)
+  await page.reload()
+  await expect(label).toHaveText('0:01')
+
+  await page.keyboard.press('?')
+  await expect(shortcut(page, 'I / O on a video')).toHaveText('Mark in / out')
+  await expect(shortcut(page, '0 to 9 on a video')).
+    toHaveText('Jump to 0 % ... 90 %')
+})
+
 test('corrects the capture time of a group', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])

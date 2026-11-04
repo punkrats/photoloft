@@ -55,6 +55,8 @@ const SHORTCUTS: [string, string][] = [
   ['I', 'Info: title, keywords, author, location'],
   ['Delete', 'Remove from album, or move to trash'],
   ['Space', 'Open the photo; Space again closes, or plays a video'],
+  ['I / O on a video', 'Mark in / out'],
+  ['0 to 9 on a video', 'Jump to 0 % ... 90 %'],
   ['Enter or double-click', 'Edit photo'],
   ['Left / Right', 'Previous / next photo'],
   ['C', 'Crop and straighten'],

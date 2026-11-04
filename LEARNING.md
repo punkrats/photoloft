@@ -62,6 +62,13 @@
   with `scale=out_color_matrix=bt709` for exact test colours.
 - Python 3.13 removed `cgi`; stream uploads with a simple framing
   (header with lengths, then raw bytes) instead of multipart.
+- Range inputs stacked in one grid cell make a bar with several thumbs:
+  the upper ones get `pointer-events: none` and their
+  `::-webkit-slider-thumb` `pointer-events: auto`, so a press beside a
+  thumb reaches the input underneath. A thumb's centre sits half its
+  width in from either end: `calc(w / 2 + (100% - w) * share)`.
+- Setting a video's `currentTime` always seeks and fires `timeupdate`,
+  also to the time it already has.
 
 ## Testing
 
@@ -97,6 +104,9 @@
   keys, until the next frame; Chromium then moves focus to the body.
   `el.checkVisibility()` is false for a removed field and for a
   hidden one alike.
+- Toasts sit over the bottom of the editor, the video's play bar
+  included; dismiss them before pointer work there.
+- `toHaveCSS('--name', value)` reads custom properties too.
 - Playwright checks a `<label>` for actionability through its control:
   clicking a label whose checkbox is disabled waits until the timeout.
   `click({ force: true })` shows what the user's click does.

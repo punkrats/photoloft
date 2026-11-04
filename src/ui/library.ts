@@ -7,7 +7,9 @@ import { formatBytes, formatDuration, formatTaken } from '../format'
 import {
   cellRect, GAP, gridLayout, HEADER, PAD, type Row, type Section
 } from '../grid-layout'
-import type { Album, AlbumSort, Library, Photo } from '../library'
+import {
+  trimRange, type Album, type AlbumSort, type Library, type Photo
+} from '../library'
 import { isEdited } from '../schema'
 import {
   currentAlbum, viewIds, viewSections, type AppState
@@ -330,6 +332,7 @@ function cell(
   const selected = state.selection.has(id)
   const url = state.thumbs.get(id)
   const detail = sortDetail(lib.photos[id], sort)
+  const kept = photo.video && trimRange(photo.video)
   const classes = {
     cell: true,
     selected,
@@ -360,10 +363,10 @@ function cell(
         <i class=${selected ? 'icon-circle-check' : 'icon-circle'}></i>
       </button>
       <span class="cell-marks">
-        ${photo.video
+        ${kept
           ? html`
             <span class="cell-video" title="Video">
-              <i class="icon-play"></i> ${formatDuration(photo.video.duration)}
+              <i class="icon-play"></i> ${formatDuration(kept.end - kept.start)}
             </span>
           `
           : nothing}

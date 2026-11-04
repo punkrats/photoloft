@@ -5,7 +5,9 @@ import { repeat } from 'lit-html/directives/repeat.js'
 import { styleMap } from 'lit-html/directives/style-map.js'
 import { formatDuration } from '../format'
 import { effectiveCrop, type Handle } from '../geometry'
-import type { Library } from '../library'
+import {
+  trimRange, type Library, type TrimEdge, type VideoInfo
+} from '../library'
 import { cropBox, stageLayout, type StageLayout } from '../stage-layout'
 import { currentPhoto, viewIds, type AppState } from '../state'
 import { historyButtons } from './library'
@@ -43,7 +45,7 @@ export function editor(state: AppState, lib: Library) {
             : nothing}
         </div>
       </div>
-      ${photo?.video ? transport(state, photo.video.duration) : nothing}
+      ${photo?.video ? transport(state, photo.video) : nothing}
       ${photo ? filmstrip(state, lib) : nothing}
     </section>
   `
@@ -104,8 +106,18 @@ function bar(state: AppState, lib: Library, id: string) {
   `
 }
 
-function transport(state: AppState, duration: number) {
+// The play bar with a grip at each mark. The stylesheet greys what lies
+// outside the marks from their shares of the clip.
+function transport(state: AppState, video: VideoInfo) {
   const { playing, time } = state.editor
+  const { duration } = video
+  const { start, end } = trimRange(video)
+  const share = (t: number) => String(duration ? t / duration : 0)
+  const shares = {
+    '--in': share(start),
+    '--out': share(end),
+    '--played': share(Math.min(end, Math.max(start, time)))
+  }
   const clock = `${formatDuration(time)} / ${formatDuration(duration)}`
 
   return html`
@@ -117,17 +129,47 @@ function transport(state: AppState, duration: number) {
       >
         <i class=${playing ? 'icon-pause' : 'icon-play'}></i>
       </button>
-      <input
-        type="range"
-        class="transport-seek"
-        min="0"
-        max=${duration}
-        step="0.01"
-        .value=${live(String(time))}
-        data-input="seek"
-      >
+      <div class="transport-bar" style=${styleMap(shares)}>
+        <input
+          type="range"
+          class="transport-seek"
+          min="0"
+          max=${duration}
+          step="0.01"
+          .value=${live(String(time))}
+          data-input="seek"
+        >
+        ${grip('start', start, duration, 'Mark in (I)')}
+        ${grip('end', end, duration, 'Mark out (O)')}
+      </div>
       <span class="toolbar-count">${clock}</span>
+      ${video.trim
+        ? html`
+          <span class="toolbar-count">
+            Trimmed to ${formatDuration(end - start)}
+          </span>
+          <button class="button" data-action="reset-trim">Reset trim</button>
+        `
+        : nothing}
     </div>
+  `
+}
+
+// Any step, so a grip reaches the very end of the clip.
+function grip(edge: TrimEdge, at: number, duration: number, title: string) {
+  return html`
+    <input
+      type="range"
+      class="transport-grip"
+      min="0"
+      max=${duration}
+      step="any"
+      .value=${live(String(at))}
+      data-input="trim"
+      data-change="slider-end"
+      data-edge=${edge}
+      title=${title}
+    >
   `
 }
 

@@ -5,8 +5,8 @@ import {
 import { commit, redoChange, saveNow, undoChange } from './commit'
 import {
   closeEditor, copySettings, endCropDrag, ensureRenderer, finishHorizon,
-  loadCurrent, moveCropDrag, openPhoto, pasteSettings, pickWhite,
-  startCropDrag, step, togglePlay
+  jumpTo, loadCurrent, markTrim, moveCropDrag, openPhoto, pasteSettings,
+  pickWhite, startCropDrag, step, togglePlay
 } from './editing'
 import type { Handle } from './geometry'
 import {
@@ -407,7 +407,17 @@ function editorKey(state: AppState, key: string) {
     },
     k: () => {
       togglePlay(state)
-    }
+    },
+
+    // On a video I and O mark in and out where it plays.
+    i: () => markTrim(state, 'start'),
+    o: () => markTrim(state, 'end')
+  }
+
+  // On a video 0 to 9 jump to that many tenths of the clip.
+  if (/^[0-9]$/.test(key)) {
+    jumpTo(state, Number(key) / 10)
+    return true
   }
 
   const action = actions[key]
