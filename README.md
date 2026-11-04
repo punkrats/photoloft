@@ -7,23 +7,9 @@ stays on your disk.
 
 ## Install
 
-Photoloft is in the AUR:
-
-```
-yay -S photoloft
-```
-
-Start it from the app launcher (Super+Space). It runs in Chromium: on
-Omarchy as a web app, elsewhere in a Chromium app window. A small user
-service, started when you open Photoloft, serves the page at
-http://127.0.0.1:47321 and makes video exports with ffmpeg. The fixed
-local address lets Chromium remember folder access ("Allow on every
-visit"), which it does not do for pages opened from disk.
-
-### From source
-
-Building needs Node.js; the service needs Python 3, video exports need
-ffmpeg, and the install script needs ImageMagick.
+Install Photoloft from source on Omarchy. Building needs Node.js; the
+service needs Python 3, video exports need ffmpeg, and the install
+script needs ImageMagick.
 
 ```
 npm install
@@ -31,9 +17,26 @@ npm run build
 scripts/install-launcher.sh
 ```
 
-The script adds the user service, serving the built page at the same
-address, and a launcher entry. Run it again after moving the project.
-Its header lists how to remove both.
+Start Photoloft from the app launcher (Super+Space). It runs in
+Chromium as an Omarchy web app. A small user service, started at login,
+serves the page at http://127.0.0.1:47321 and makes video exports with
+ffmpeg. The fixed local address lets Chromium remember folder access
+("Allow on every visit"), which it does not do for pages opened from
+disk.
+
+The script adds the service and the launcher entry. Run it again after
+moving the project. Its header lists how to remove both.
+
+### AUR package
+
+An AUR package, `photoloft`, is coming. Once it is published:
+
+```
+yay -S photoloft
+```
+
+On Omarchy it opens as a web app, on other Arch systems in a Chromium
+app window. Its service starts when you open Photoloft.
 
 ### From the script install to the package
 
@@ -186,7 +189,9 @@ For each release:
 
 1. `npm version 0.2.0 -m 'Release %s'` raises the version in
    `package.json` and `package-lock.json`, commits and tags `v0.2.0`;
-   `git push origin main v0.2.0` pushes both.
+   `git push origin main v0.2.0` pushes both. The first release keeps
+   the 0.1.0 already in `package.json` and tags it by hand:
+   `git tag -m 'Release 0.1.0' v0.1.0`, then `git push origin main v0.1.0`.
 2. Run `scripts/aur-release.sh`. It puts the version and the checksum
    of the tag's tarball into `packaging/aur/` and regenerates
    `.SRCINFO`, and prints the next steps.
