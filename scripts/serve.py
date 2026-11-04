@@ -329,19 +329,36 @@ def duration_of(path, trim=None):
     return max(0.0, min(full, trim['end']) - trim['start'])
 
 
+# The share done from one line of ffmpeg's -progress output, or None for
+# other lines and for a time that is no number, such as the
+# out_time_us=N/A ffmpeg reports until its muxer has a first packet.
+def progress_share(line, total):
+    key, _, value = line.partition('=')
+    if key != 'out_time_us' or not total:
+        return None
+    try:
+        return min(1.0, int(value) / 1e6 / total)
+    except ValueError:
+        return None
+
+
+# ffmpeg's errors go to a file, since a damaged clip can log more than a
+# pipe holds before its progress ends.
 def export_video(source, target, settings, lut_path, on_progress=None):
     total = duration_of(source, settings['trim'])
     place = place_of(settings, source)
     args = ffmpeg_args(source, target, settings, lut_path, place)
-    with subprocess.Popen(args, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True) as process:
+    with (tempfile.TemporaryFile() as log,
+          subprocess.Popen(args, stdout=subprocess.PIPE, stderr=log,
+                           text=True) as process):
         for line in process.stdout:
-            if on_progress and total and line.startswith('out_time_us='):
-                done = int(line.split('=')[1] or 0) / 1e6
-                on_progress(min(1.0, done / total))
-        error = process.stderr.read()
-    if process.returncode != 0:
-        raise RuntimeError(error.strip() or 'ffmpeg failed')
+            share = progress_share(line, total)
+            if on_progress and share is not None:
+                on_progress(share)
+        if process.wait() != 0:
+            log.seek(0)
+            error = log.read().decode(errors='replace').strip()
+            raise RuntimeError(error or 'ffmpeg failed')
     if place:
         add_place(target, place)
 

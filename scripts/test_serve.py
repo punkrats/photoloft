@@ -13,6 +13,7 @@ import threading
 import time
 import unittest
 import urllib.request
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import serve  # noqa: E402
@@ -318,6 +319,19 @@ class Duration(unittest.TestCase):
         self.assertAlmostEqual(length, 0.5, places=2)
 
 
+class Progress(unittest.TestCase):
+    def test_reads_the_share_done_from_timed_reports(self):
+        self.assertEqual(serve.progress_share('out_time_us=500000\n', 2), 0.25)
+        self.assertEqual(serve.progress_share('out_time_us=3000000\n', 2), 1)
+
+    def test_skips_untimed_reports_and_other_lines(self):
+        lines = ['out_time_us=N/A\n', 'out_time_us=\n', 'out_time_ms=500000\n',
+                 'progress=continue\n', 'bitrate=N/A\n']
+        for line in lines:
+            self.assertIsNone(serve.progress_share(line, 2), line)
+        self.assertIsNone(serve.progress_share('out_time_us=500000\n', 0))
+
+
 class Guard(unittest.TestCase):
     def test_allows_the_page_itself(self):
         self.assertTrue(serve.allowed('127.0.0.1:47321', None, 47321))
@@ -456,6 +470,58 @@ class Export(unittest.TestCase):
         video = [s for s in streams if s['codec_type'] == 'video'][0]
         self.assertEqual((video['width'], video['height']), (240, 320))
         self.assertIn('audio', [s['codec_type'] for s in streams])
+
+
+# export_video with a Python script in place of ffmpeg, writing what
+# ffmpeg wrote for slow and damaged clips. ffprobe still measures the
+# fixture.
+@unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
+class FfmpegOutput(unittest.TestCase):
+    def setUp(self):
+        self.dir = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    # Runs the export in a thread, so a stall fails the test instead of
+    # hanging the suite. Returns the shares reported and the error.
+    def export(self, script):
+        shares, outcome = [], []
+        args = [sys.executable, '-c', script]
+
+        def run():
+            try:
+                serve.export_video(FIXTURES / 'clip.mp4', self.dir / 'out.mp4',
+                                   GOOD, self.dir / 'lut.cube', shares.append)
+                outcome.append(None)
+            except Exception as error:
+                outcome.append(error)
+
+        with mock.patch.object(serve, 'ffmpeg_args', return_value=args):
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            worker.join(20)
+        self.assertFalse(worker.is_alive(), 'the export stalled')
+        return shares, outcome[0]
+
+    def test_keeps_the_last_share_over_untimed_reports(self):
+        times = ['N/A', '500000', 'N/A', '1500000', '2000000']
+        reports = ''.join(f'out_time_us={t}\nprogress=continue\n'
+                          for t in times)
+        shares, error = self.export(f'print({reports!r})')
+        self.assertIsNone(error)
+        self.assertEqual(shares, [0.25, 0.75, 1.0])
+
+    def test_reads_more_errors_than_a_pipe_holds(self):
+        script = '\n'.join([
+            'import sys',
+            "sys.stderr.write('[h264] error while decoding MB\\n' * 40000)",
+            "sys.stderr.write('Conversion failed!\\n')",
+            "print('out_time_us=N/A\\nprogress=end')",
+            'sys.exit(1)'
+        ])
+        _, error = self.export(script)
+        self.assertIsInstance(error, RuntimeError)
+        last = str(error).splitlines()[-1]
+        self.assertEqual(last, 'Conversion failed!')
 
 
 @unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
