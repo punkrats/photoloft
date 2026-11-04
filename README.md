@@ -71,6 +71,13 @@ unless an album has a folder of its own.
 - Auto adjusts exposure, contrast, highlights, shadows, whites, blacks
   and vibrance. White balance has its own Auto button and eyedropper,
   since a guess cannot tell a colour cast from the colour of a scene.
+  Auto judges the original under the photo's white balance, so it
+  gives a photo the same settings each time, in the editor and the
+  selection bar alike; a video is judged by its thumbnail's frame. In
+  the editor the Auto button is greyed out while the photo has them;
+  moving one of its sliders or the white balance makes it active
+  again. In the selection bar the toast counts the photos that
+  changed, and a run that changes none records nothing and says so.
 - The Sort control orders any view by date taken, name or file size.
   Albums also have their custom order (drag to reorder) and remember
   their sort; dragging in a sorted album switches it to custom.

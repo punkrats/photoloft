@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { autoTone, autoWhiteBalance } from '../src/auto'
+import { autoTone, autoWhiteBalance, hasSettings } from '../src/auto'
 import {
   colourParams, develop, linearToSrgb, srgbToLinear, type RGB
 } from '../src/colour'
-import { colourOf, NEUTRAL_EDIT } from '../src/schema'
+import { colourOf, NEUTRAL_EDIT, type Edit } from '../src/schema'
 
 // Builds an RGBA buffer from perceptual (sRGB-encoded) colours.
 function image(colours: RGB[]) {
@@ -104,6 +104,32 @@ describe('autoTone', () => {
     expect(vivid.vibrance).toBe(0)
   })
 
+  it('gives a photo holding its values the same values again', () => {
+    const photos = [
+      cast(ramp(1000), [0.2, 0.2, 0.2]),
+      ramp(1000, 0.55, 1),
+      ramp(1000, 0.3, 0.62),
+      cast(ramp(1000), [1.05, 1, 0.95]),
+      sunny()
+    ]
+    for (const colours of photos) {
+      const rgba = image(colours)
+      const first = autoTone(rgba)
+      const edit: Edit = { ...NEUTRAL_EDIT, ...first }
+      expect(autoTone(rgba, edit)).toEqual(first)
+    }
+  })
+
+  it('judges by the white balance of an edit and nothing else', () => {
+    const rgba = image(cast(ramp(1000), [1.05, 1, 0.95]))
+    const warm = { temperature: 30, tint: 0 }
+    const edit: Edit = {
+      ...NEUTRAL_EDIT, ...warm, contrast: 40, blacks: -20, saturation: 50
+    }
+    expect(autoTone(rgba, edit)).toEqual(autoTone(rgba, warm))
+    expect(autoTone(rgba, warm)).not.toEqual(autoTone(rgba))
+  })
+
   it('copes with a black frame', () => {
     const tone = autoTone(image(Array(500).fill([0, 0, 0])))
     for (const value of Object.values(tone)) {
@@ -159,5 +185,15 @@ describe('autoWhiteBalance', () => {
   it('copes with a black frame', () => {
     expect(autoWhiteBalance(image(Array(500).fill([0, 0, 0])))).
       toEqual({ temperature: 0, tint: 0 })
+  })
+})
+
+describe('hasSettings', () => {
+  it('tells whether an edit holds every value given', () => {
+    const values = { temperature: 0, exposure: 0.35, whites: 12 }
+    const edit: Edit = { ...NEUTRAL_EDIT, ...values, saturation: 20, angle: 3 }
+    expect(hasSettings(edit, values)).toBe(true)
+    expect(hasSettings({ ...edit, whites: 11 }, values)).toBe(false)
+    expect(hasSettings({ ...edit, temperature: 5 }, values)).toBe(false)
   })
 })

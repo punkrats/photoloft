@@ -107,6 +107,11 @@ function slider(page: Page, label: string) {
   return page.locator('.slider', { hasText: label }).locator('output')
 }
 
+// The colour sliders' values shown in the editor, top to bottom.
+function slidersShown(page: Page) {
+  return page.locator('.panel .slider output').allTextContents()
+}
+
 function cell(page: Page, name: string) {
   return page.locator('.cell', { hasText: name })
 }
@@ -545,9 +550,10 @@ test('selects with a rectangle and runs Auto on it', async ({ page }) => {
   await page.mouse.up()
   await expect(page.locator('.selection-count')).toHaveText('6 selected')
 
+  // e2e-c.jpg has Auto's settings as imported, so five photos change.
   const bar = page.locator('.selection-bar')
   await bar.getByRole('button', { name: 'Auto' }).click()
-  await expect(page.locator('.toast')).toContainText('Auto applied to 6 photos')
+  await expect(page.locator('.toast')).toHaveText('Auto applied to 5 photos.')
 
   // Auto leaves white balance alone; its own button warms the blue photo.
   await cell(page, 'e2e-b.jpg').dblclick()
@@ -557,6 +563,124 @@ test('selects with a rectangle and runs Auto on it', async ({ page }) => {
   await page.getByTitle('Remove a colour cast automatically').click()
   await expect.poll(async () => Number(await temperature.textContent())).
     toBeGreaterThan(0)
+})
+
+test('greys out Auto while the photo has its settings', async ({ page }) => {
+  const auto = page.locator('[data-action="auto"]')
+  const whites = slider(page, 'Whites')
+  const blacks = slider(page, 'Blacks')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg'])
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+
+  await auto.click()
+  await expect(whites).toHaveText('40')
+  await expect(blacks).toHaveText('-40')
+  await expect(auto).toBeDisabled()
+  const settings = await slidersShown(page)
+
+  // A moved slider makes Auto active, and a press gives the same values.
+  await page.locator('input[data-key="whites"]').fill('10')
+  await expect(auto).toBeEnabled()
+  await auto.click()
+  await expect(auto).toBeDisabled()
+  expect(await slidersShown(page)).toEqual(settings)
+
+  // So does a reset slider; Ctrl+Z and redo follow.
+  await page.locator('.slider-label', { hasText: 'Blacks' }).dblclick()
+  await expect(blacks).toHaveText('0')
+  await expect(auto).toBeEnabled()
+  await page.keyboard.press('Control+z')
+  await expect(blacks).toHaveText('-40')
+  await expect(auto).toBeDisabled()
+  await page.keyboard.press('Control+Shift+z')
+  await expect(auto).toBeEnabled()
+  await page.keyboard.press('Control+z')
+
+  // White balance is Auto's starting point: after a change Auto is
+  // active, and back at the former balance it is greyed out again.
+  await page.locator('input[data-key="temperature"]').fill('40')
+  await expect(auto).toBeEnabled()
+  const warm = await slidersShown(page)
+  await auto.click()
+  await expect(auto).toBeDisabled()
+  expect(await slidersShown(page)).not.toEqual(warm)
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect(slider(page, 'Temperature')).toHaveText('0')
+  await expect(auto).toBeDisabled()
+  expect(await slidersShown(page)).toEqual(settings)
+})
+
+test('applies Auto to a selection once', async ({ page }) => {
+  const toast = page.locator('.toast')
+  const folder = page.locator('.sidebar-folder')
+  const starred = page.locator('.nav-item', { hasText: 'Starred' })
+  const run = page.locator('[data-action="auto-selection"]')
+  const auto = page.locator('[data-action="auto"]')
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg'])
+  await page.keyboard.press('Control+a')
+  await run.click()
+  await expect(toast).toHaveText('Auto applied to 2 photos.')
+
+  // Again it changes nothing: no save is due right after, and Ctrl+Z
+  // takes back the stars given before.
+  await page.keyboard.press('s')
+  await expect(starred.locator('.nav-count')).toHaveText('2')
+  await saved(page)
+  await run.click()
+  await expect(toast).
+    toHaveText("These 2 photos already have Auto's settings.")
+  expect(await folder.getAttribute('data-saved')).toBe('true')
+  await page.keyboard.press('Control+z')
+  await expect(starred.locator('.nav-count')).toHaveText('')
+
+  await cell(page, 'e2e-a.jpg').click()
+  await run.click()
+  await expect(toast).toHaveText("This photo already has Auto's settings.")
+
+  // The editor finds the selection bar's values and greys out Auto, also
+  // for a photo closed at once and opened again once the editor's wait
+  // before working out Auto (400 ms) has passed.
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(600)
+  await cell(page, 'e2e-a.jpg').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await expect(slider(page, 'Whites')).toHaveText('40')
+  await expect(auto).toBeDisabled()
+
+  // One photo moved away from Auto: only that one changes.
+  await page.locator('input[data-key="whites"]').fill('10')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+a')
+  await run.click()
+  await expect(toast).toHaveText('Auto applied to 1 photo.')
+})
+
+test('judges a video by its thumbnail frame', async ({ page }) => {
+  const auto = page.locator('[data-action="auto"]')
+  const shadows = slider(page, 'Shadows')
+  await openLibrary(page)
+  await importPhotos(page, ['clip.mp4'])
+  await cell(page, 'clip.mp4').click()
+  await page.locator('[data-action="auto-selection"]').click()
+  await expect(page.locator('.toast')).toHaveText('Auto applied to 1 photo.')
+
+  // At 90 % of the clip, Auto keeps the selection bar's values.
+  await cell(page, 'clip.mp4').dblclick()
+  await expect(page.locator('.stage')).not.toHaveClass(/loading/)
+  await page.keyboard.press('9')
+  await expect(auto).toBeDisabled()
+  const settings = await slidersShown(page)
+  await page.locator('input[data-key="shadows"]').fill('30')
+  await expect(auto).toBeEnabled()
+  await auto.click()
+  await expect(auto).toBeDisabled()
+  expect(await slidersShown(page)).toEqual(settings)
+  await expect(shadows).not.toHaveText('30')
 })
 
 test('crops to a square and rotates', async ({ page }) => {

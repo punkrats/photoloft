@@ -1,3 +1,4 @@
+import { hasSettings } from './auto'
 import type { MapView, Place } from './geo'
 import { emptyHistory, recordChange, type History } from './history'
 import { plain, type Section } from './grid-layout'
@@ -96,6 +97,15 @@ export type CropDrag = {
   ratio: number | null
 }
 
+// Auto for the photo shown in the editor: the pixels it judges, taken
+// once per photo, and the settings they gave under each white balance
+// judged so far, white balance included.
+export type EditorAuto = {
+  id: string
+  sample: Promise<Uint8ClampedArray>
+  settings: Omit<Colour, 'saturation'>[]
+}
+
 export type Editor = {
   renderer: Renderer | null
   loaded: string | null
@@ -114,6 +124,7 @@ export type Editor = {
   video: HTMLVideoElement | null
   playing: boolean
   time: number
+  auto: EditorAuto | null
 }
 
 export type AppState = {
@@ -220,7 +231,8 @@ export function initialState(root: HTMLElement): AppState {
       stripFor: null,
       video: null,
       playing: false,
-      time: 0
+      time: 0,
+      auto: null
     },
     saveTimer: null,
     saving: null,
@@ -281,6 +293,16 @@ export function viewSections(state: AppState): Section[] {
 export function currentPhoto(state: AppState) {
   if (!state.library || !state.current) return null
   return state.library.photos[state.current] ?? null
+}
+
+// Whether the photo shown has the settings Auto gives it under its
+// white balance, so pressing Auto would change nothing.
+export function hasAutoSettings(state: AppState) {
+  const photo = currentPhoto(state)
+  const auto = state.editor.auto
+  if (!photo || auto?.id !== photo.id) return false
+
+  return auto.settings.some(values => hasSettings(photo.edit, values))
 }
 
 export function infoForm(state: AppState) {

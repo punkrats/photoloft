@@ -2,7 +2,7 @@ import {
   colourParams, develop, linearToSrgb, luma, srgbToLinear, wbFromRatios,
   type RGB
 } from './colour'
-import { colourOf, NEUTRAL_EDIT, type Colour } from './schema'
+import { colourOf, NEUTRAL_EDIT, type Colour, type Edit } from './schema'
 
 type Balance = { temperature: number, tint: number }
 export type AutoTone = Omit<Colour, 'saturation' | keyof Balance>
@@ -24,6 +24,13 @@ export function autoTone(
 // balance section's own Auto button.
 export function autoWhiteBalance(rgba: Uint8ClampedArray): Balance {
   return whiteBalance(samplePixels(rgba))
+}
+
+// Whether `edit` holds every value in `values`, so applying them would
+// change nothing.
+export function hasSettings(edit: Edit, values: Partial<Colour>) {
+  const keys = Object.keys(values) as (keyof Colour)[]
+  return keys.every(key => edit[key] === values[key])
 }
 
 function samplePixels(rgba: Uint8ClampedArray) {
@@ -121,9 +128,12 @@ function mostNeutral(linear: RGB[], gains: RGB, [lo, hi]: Band) {
 
 // Levels and highlights look at single colour channels: a deep blue sky
 // can sit at the blue limit while its overall brightness reads as mid
-// grey, and stretching on brightness alone would clip it further.
+// grey, and stretching on brightness alone would clip it further. Of
+// `wb`, which may be a whole edit, only white balance counts, so Auto
+// lands on the same values however often it runs.
 function tone(pixels: RGB[], wb: Balance) {
-  const base = { ...colourOf(NEUTRAL_EDIT), ...wb }
+  const { temperature, tint } = wb
+  const base = { ...colourOf(NEUTRAL_EDIT), temperature, tint }
   const exposure = exposureFor(developAll(pixels, base))
 
   const developed = developAll(pixels, { ...base, exposure })

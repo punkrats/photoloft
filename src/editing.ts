@@ -1,4 +1,4 @@
-import { autoTone, autoWhiteBalance } from './auto'
+import { autoTone, autoWhiteBalance, hasSettings } from './auto'
 import { srgbToLinear, wbFromRatios } from './colour'
 import { commit } from './commit'
 import {
@@ -9,7 +9,8 @@ import {
   closeVideo, decode, openVideo, probeVideo, samplePixels, videoFrame
 } from './images'
 import {
-  draggedTrim, markedTrim, setEdits, setTrim, trimRange, type TrimEdge
+  draggedTrim, markedTrim, setEdits, setTrim, trimRange, type Photo,
+  type TrimEdge
 } from './library'
 import { Renderer } from './pipeline'
 import { render } from './render'
@@ -20,9 +21,11 @@ import { stageLayout } from './stage-layout'
 import {
   currentPhoto, endCoalescing, showToast, viewIds, type AppState, type Point
 } from './state'
-import { readOriginal } from './storage'
+import { readOriginal, type Dirs } from './storage'
 
 const AUTO_EDGE = 256
+const AUTO_SOURCE = 2048
+const AUTO_DELAY = 400
 const SAMPLER_EDGE = 1024
 
 // ─── Opening photos ──────────────────────────────────────────────────
@@ -48,6 +51,7 @@ export function openPhoto(state: AppState, id: string) {
   state.editor.horizon = null
   render(state)
   void loadCurrent(state)
+  void judgeAuto(state, id)
 }
 
 // Back to the grid with the photo last shown selected and scrolled
@@ -284,14 +288,75 @@ export function pasteSettings(state: AppState, ids: string[]) {
 
 // ─── Auto ────────────────────────────────────────────────────────────
 
+// A press on a photo that has Auto's settings already changes nothing
+// and records nothing.
 export async function autoCurrent(state: AppState) {
-  const sample = await currentSample(state)
-  const photo = currentPhoto(state)
-  if (!sample || !photo) return
+  const id = state.current
+  if (!id) return
 
-  const auto = autoTone(sample, photo.edit)
-  endCoalescing(state)
-  changeCurrent(state, e => ({ ...e, ...auto }))
+  const settings = await autoSettings(state, id).catch((error: unknown) => {
+    showToast(state, `Could not open ${String(error)}`)
+    return null
+  })
+  const photo = currentPhoto(state)
+  if (settings && photo?.id === id && !hasSettings(photo.edit, settings)) {
+    endCoalescing(state)
+    changeCurrent(state, e => ({ ...e, ...settings }))
+  }
+  render(state)
+}
+
+// Works out Auto's settings once a photo has been open a moment, so the
+// Auto button can grey out; stepping on through photos never waits for
+// it.
+async function judgeAuto(state: AppState, id: string) {
+  await new Promise(resolve => setTimeout(resolve, AUTO_DELAY))
+  if (state.current !== id || state.mode === 'grid') return
+
+  await autoSettings(state, id).catch(() => null)
+  render(state)
+}
+
+// Auto's settings for photo `id` under its white balance now, or null
+// once the editor shows another photo. The sample is taken once per
+// photo shown, the settings once per white balance.
+async function autoSettings(state: AppState, id: string) {
+  const editor = state.editor
+  const photo = state.library?.photos[id]
+  if (!photo || !state.dirs) return null
+
+  if (editor.auto?.id !== id) {
+    editor.auto = { id, sample: autoSample(state.dirs, photo), settings: [] }
+  }
+  const auto = editor.auto
+  const sample = await auto.sample
+  const edit = state.library?.photos[id]?.edit
+  if (!edit || editor.auto !== auto || state.current !== id) return null
+
+  const { temperature, tint } = edit
+  const known = auto.settings.find(s => {
+    return s.temperature === temperature && s.tint === tint
+  })
+  if (known) return known
+
+  const settings = { temperature, tint, ...autoTone(sample, edit) }
+  auto.settings.push(settings)
+  return settings
+}
+
+// Auto's pixels for a photo: the original at 2048 px at most, or a
+// video's thumbnail frame, shrunk to AUTO_EDGE. The editor and the
+// selection bar share them, so Auto lands on the same values.
+async function autoSample(dirs: Dirs, photo: Photo) {
+  const original = await readOriginal(dirs, photo)
+  const bitmap = photo.video
+    ? (await probeVideo(original)).frame
+    : await decode(original, AUTO_SOURCE)
+  try {
+    return await samplePixels(bitmap, AUTO_EDGE)
+  } finally {
+    bitmap.close()
+  }
 }
 
 export async function autoWhiteBalanceCurrent(state: AppState) {
@@ -327,14 +392,8 @@ export async function autoSelection(state: AppState) {
   for (const id of ids) {
     if (progress.cancelled) break
     try {
-      const photo = state.library!.photos[id]
-      const original = await readOriginal(state.dirs, photo)
-      const bitmap = photo.video
-        ? (await probeVideo(original)).frame
-        : await decode(original, 2048)
-      const sample = await samplePixels(bitmap, AUTO_EDGE)
+      const sample = await autoSample(state.dirs, state.library!.photos[id])
       results.set(id, autoTone(sample, state.library!.photos[id].edit))
-      bitmap.close()
     } catch {
       // Skipped; reported by the count below.
     }
@@ -342,13 +401,29 @@ export async function autoSelection(state: AppState) {
     render(state)
   }
 
+  // Only photos without their values change, so pressing Auto again
+  // records nothing.
   state.progress = null
   let lib = state.library!
-  for (const [id, auto] of results) {
+  const changed = [...results].filter(([id, auto]) => {
+    const edit = lib.photos[id]?.edit
+    return edit && !hasSettings(edit, auto)
+  })
+  for (const [id, auto] of changed) {
     lib = setEdits(lib, [id], e => ({ ...e, ...auto }))
   }
   commit(state, lib)
-  showToast(state, `Auto applied to ${results.size} ${plural(results.size)}.`)
+
+  const n = changed.length
+  if (n || !results.size) {
+    const count = `${n} ${plural(n)}`
+    showToast(state, `Auto applied to ${count}.`)
+  } else {
+    const these = results.size === 1
+      ? 'This photo already has'
+      : `These ${results.size} photos already have`
+    showToast(state, `${these} Auto's settings.`)
+  }
   render(state)
 }
 

@@ -13,6 +13,10 @@
   EXIF orientation; resizing via a second `createImageBitmap(bitmap,
   { resizeQuality: 'high' })` avoids depending on the order of resize
   and orientation.
+- `createImageBitmap` resizes ('high') depend on the steps: a 4000 x
+  3000 JPEG shrunk straight to 256 px and one shrunk to 2048 first
+  differ in 40 % of the bytes, by up to 4 levels. Results that must
+  agree have to take the same steps from the same source.
 - Chromium's JPEG encoder never goes below about 760 bytes (full
   Huffman tables), whatever the image size.
 - Chromium does not persist File System Access permissions for
@@ -175,6 +179,11 @@
   (`vite build <root>`); there is no `--root` flag.
 - TypeScript 7 ships its lib files in
   `node_modules/@typescript/typescript-linux-x64/lib/`.
+- TypeScript checks for extra fields only on object literals: a
+  variable of a wider type (an `Edit`) passes where `{ temperature,
+  tint }` is declared, and a spread of that parameter takes every
+  field. A function that spreads a narrow parameter should pick its
+  fields by name.
 - Vitest 3 pulled a vulnerable tinypool; Vitest 4.1.12 works with
   Vite 6 on Node 22.11 (Vite 7 needs Node 22.12+).
 - `omarchy-webapp-install` refuses anything other than http(s) URLs.

@@ -2,7 +2,7 @@ import { html, nothing } from 'lit-html'
 import { classMap } from 'lit-html/directives/class-map.js'
 import { live } from 'lit-html/directives/live.js'
 import { ADJUSTMENTS, type Adjustment, type Aspect, type Edit } from '../schema'
-import { currentPhoto, type AppState } from '../state'
+import { currentPhoto, hasAutoSettings, type AppState } from '../state'
 import { histogramView } from './histogram'
 
 const GROUPS = ['White balance', 'Tone', 'Presence'] as const
@@ -28,6 +28,7 @@ export function panel(state: AppState) {
           class="button primary"
           data-action="auto"
           title="Automatic exposure, contrast and colour intensity"
+          ?disabled=${hasAutoSettings(state)}
         >
           <i class="icon-wand-sparkles"></i> Auto
         </button>
