@@ -127,12 +127,20 @@ export function notInAlbums(lib: Library, ids: string[]) {
   return ids.filter(id => !grouped.has(id))
 }
 
+// A blank name keeps the old one.
 export function renamePhoto(lib: Library, id: string, name: string) {
   const clean = name.trim()
-  const photo = lib.photos[id]
-  if (!clean || !photo) return lib
+  return clean ? renamePhotos(lib, { [id]: clean }) : lib
+}
 
-  return withPhotos(lib, [{ ...photo, name: clean }])
+// Gives each photo the name set for its id. Ids the library lacks and
+// names a photo has already are skipped, so a rename that changes no
+// name returns `lib` itself.
+export function renamePhotos(lib: Library, names: Record<string, string>) {
+  const photos = Object.entries(names)
+    .filter(([id, name]) => lib.photos[id] && lib.photos[id].name !== name)
+    .map(([id, name]) => ({ ...lib.photos[id], name }))
+  return withPhotos(lib, photos)
 }
 
 export function setEdits(
@@ -285,9 +293,12 @@ export function createAlbum(lib: Library, id: string, name: string) {
   return { ...lib, albums: [...lib.albums, album] }
 }
 
+// A blank name keeps the old one; with no change, or no such album, it
+// returns `lib` itself.
 export function renameAlbum(lib: Library, id: string, name: string) {
   const clean = name.trim()
-  if (!clean) return lib
+  const album = lib.albums.find(a => a.id === id)
+  if (!clean || !album || album.name === clean) return lib
 
   return mapAlbum(lib, id, a => ({ ...a, name: clean }))
 }

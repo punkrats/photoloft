@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addPhotos, addToAlbum, albumsByName, createAlbum, deleteAlbum,
   emptyLibrary, emptyTrash, libraryCounts, migrate, moveInAlbum, pickLibrary,
-  removeFromAlbum, renameAlbum, renamePhoto, restorePhotos,
+  removeFromAlbum, renameAlbum, renamePhoto, renamePhotos, restorePhotos,
   setAlbumExportName, setAlbumSort, setEdits, setLastImport, setMeta,
   setPhotoSizes, retime, toggleStars, trashPhotos, viewPhotos,
   albumSections, notInAlbums, type Library, type Photo
@@ -87,6 +87,13 @@ describe('albums', () => {
 
   it('keeps the old name when the new one is blank', () => {
     expect(album(renameAlbum(sample(), 'al1', '  ')).name).toBe('Rome')
+  })
+
+  it('returns the library itself when the name stays', () => {
+    const lib = sample()
+    expect(renameAlbum(lib, 'al1', ' Rome ')).toBe(lib)
+    expect(renameAlbum(lib, 'al1', '  ')).toBe(lib)
+    expect(renameAlbum(lib, 'gone', 'Paris')).toBe(lib)
   })
 
   it('deletes the album but keeps its photos and drops its record', () => {
@@ -200,6 +207,36 @@ describe('photos', () => {
     expect(lib.photos.a.name).toBe('Sunset')
     lib = renamePhoto(lib, 'a', '')
     expect(lib.photos.a.name).toBe('Sunset')
+  })
+
+  it('returns the library itself when a photo keeps its name', () => {
+    const lib = sample()
+    expect(renamePhoto(lib, 'a', ' zebra.jpg ')).toBe(lib)
+    expect(renamePhoto(lib, 'a', '')).toBe(lib)
+    expect(renamePhoto(lib, 'gone', 'x.jpg')).toBe(lib)
+  })
+
+  it('renames several photos at once, leaving the others alone', () => {
+    const before = sample()
+    const lib = renamePhotos(before, { a: 'Rome-001.jpg', b: 'Rome-002.jpg' })
+    expect(lib.photos.a.name).toBe('Rome-001.jpg')
+    expect(lib.photos.b.name).toBe('Rome-002.jpg')
+    expect(lib.photos.c).toBe(before.photos.c)
+  })
+
+  it('skips unknown photos and names they have already', () => {
+    const before = sample()
+    const lib = renamePhotos(before, { a: 'zebra.jpg', b: 'x.jpg', no: 'y' })
+    expect(lib.photos.a).toBe(before.photos.a)
+    expect(lib.photos.b.name).toBe('x.jpg')
+    expect(lib.photos.no).toBeUndefined()
+  })
+
+  it('returns the library itself when no name changes', () => {
+    const lib = sample()
+    expect(renamePhotos(lib, { a: 'zebra.jpg', b: 'apple.jpg' })).toBe(lib)
+    expect(renamePhotos(lib, { gone: 'x.jpg' })).toBe(lib)
+    expect(renamePhotos(lib, {})).toBe(lib)
   })
 
   it('sets edits on several photos and leaves others untouched', () => {
