@@ -103,6 +103,14 @@
   stderr pipe read only after stdout fills at 64 KiB; the decoder then
   waits while the main thread keeps writing the same progress, so the
   reader never sees stdout end. Send stderr to a file.
+- libx264 refuses a CRF in a second pass ("CRF/CQP is incompatible
+  with 2pass"); two passes need `-b:v`. The first pass can write its
+  video to `-f null /dev/null` while `-progress pipe:1` keeps stdout,
+  and `-passlogfile <prefix>` puts the statistics (`<prefix>-0.log`,
+  `.mbtree`) where the job's folder removes them.
+- A page that aborts an upload closes the connection: the server's
+  read ends early, and answering then raises BrokenPipeError, which
+  `socketserver` prints as a traceback. Send no answer.
 
 ## Testing
 
@@ -174,11 +182,16 @@
 - A scrollbar takes its thickness out of the box's padding box, so a
   strip of fixed height with `overflow-x: auto` loses that height
   below its content, and its `overflow-y` computes to `auto` as well.
+- `route.fulfill` on the status poll of a video job keeps an export
+  "encoding" for as long as a test needs, while the upload and the
+  DELETE of a cancel still reach the real server (`route.continue()`
+  for other methods).
 - Server tests replace ffmpeg with a Python stand-in through
-  `mock.patch.object(serve, 'ffmpeg_args', return_value=[sys.executable,
-  '-c', script])`, for output real ffmpeg gives only on slow or damaged
-  clips. An export that can stall runs in a daemon thread joined with a
-  timeout, so a stall fails the test and the suite goes on.
+  `mock.patch.object(serve, 'ffmpeg_commands', return_value=[[
+  sys.executable, '-c', script]])`, for output real ffmpeg gives only on
+  slow or damaged clips. An export that can stall runs in a daemon
+  thread joined with a timeout, so a stall fails the test and the suite
+  goes on.
 
 ## Tooling
 

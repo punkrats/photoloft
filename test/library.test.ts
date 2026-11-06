@@ -703,6 +703,38 @@ describe('migrate', () => {
     expect(lib.albums).toEqual([])
     expect(lib.photos.a.edit).toEqual(NEUTRAL_EDIT)
     expect(lib.exportSettings.quality).toBe(90)
+    expect(lib.exportSettings).toMatchObject({
+      videoEncoding: 'quality',
+      videoCrf: 20,
+      videoBitrate: 8,
+      videoTwoPass: false
+    })
+  })
+
+  it('keeps the video encoding chosen', () => {
+    const exportSettings = {
+      videoEncoding: 'bitrate', videoCrf: 26, videoBitrate: 2.5,
+      videoTwoPass: true
+    }
+    const lib = migrate({ version: 1, exportSettings })
+    expect(lib.exportSettings).toMatchObject(exportSettings)
+  })
+
+  it('brings video encoding values into what the service takes', () => {
+    const exportSettings = {
+      videoEncoding: 'fast', videoCrf: 50.4, videoBitrate: 400,
+      videoTwoPass: 'yes'
+    }
+    const lib = migrate({ version: 1, exportSettings })
+    expect(lib.exportSettings).toMatchObject({
+      videoEncoding: 'quality',
+      videoCrf: 32,
+      videoBitrate: 100,
+      videoTwoPass: false
+    })
+    const none = { videoCrf: 'x', videoBitrate: -3 }
+    expect(migrate({ version: 1, exportSettings: none }).exportSettings).
+      toMatchObject({ videoCrf: 20, videoBitrate: 8 })
   })
 
   it('keeps the last import, without ids of missing photos', () => {

@@ -72,7 +72,7 @@ function toolbar(state: AppState, ids: string[], album: Album | null) {
       </div>
       <div class="toolbar-actions">
         ${state.view.kind === 'albums' ? nothing : sortControl(state, album)}
-        ${album ? albumActions() : viewActions(state)}
+        ${album ? albumActions(state) : viewActions(state)}
         <span class="toolbar-gap"></span>
         ${importButtons()}
         ${historyButtons(state)}
@@ -139,9 +139,15 @@ function sortControl(state: AppState, album: Album | null) {
   `
 }
 
-function albumActions() {
+// Export is off while an import, export or Auto runs, since no export
+// can start then.
+function albumActions(state: AppState) {
   return html`
-    <button class="button primary" data-action="export-album">
+    <button
+      class="button primary"
+      data-action="export-album"
+      ?disabled=${state.progress !== null}
+    >
       <i class="icon-download"></i> Export
     </button>
     <button class="icon-button" data-action="delete-album" title="Delete album">

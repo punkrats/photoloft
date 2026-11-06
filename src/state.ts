@@ -33,6 +33,10 @@ export type ExportForm = {
   quality: number
   stripGps: boolean
   videoSide: string
+  videoEncoding: 'quality' | 'bitrate'
+  videoCrf: number
+  videoBitrate: number
+  videoTwoPass: boolean
   folder: string | null
   picked: FileSystemDirectoryHandle | null
 }
@@ -80,11 +84,14 @@ export type Dialog =
   | { kind: 'info', form: InfoForm }
   | { kind: 'rename', ids: string[], pattern: string, start: number }
 
+// A long task in the progress bar. Cancel aborts `cancel`, which every
+// task checks between items; an export also passes it to the requests
+// of a video, so ffmpeg stops at once.
 export type Progress = {
   label: string
   done: number
   total: number
-  cancelled: boolean
+  cancel: AbortController
 }
 
 export type Point = { x: number, y: number }

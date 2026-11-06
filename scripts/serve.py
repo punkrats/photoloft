@@ -15,6 +15,7 @@ import http.server
 import json
 import math
 import mmap
+import os
 import pathlib
 import re
 import secrets
@@ -35,11 +36,17 @@ CHUNK = 1024 * 1024
 NUMBER = re.compile(r'^-?\d+(\.\d+)?([eE]-?\d+)?$')
 SHORT_SIDES = (0, 720, 1080)
 SETTING_KEYS = {
-    'rotate', 'flip', 'angle', 'crop', 'shortSide', 'crf', 'creationTime',
+    'rotate', 'flip', 'angle', 'crop', 'shortSide', 'rate', 'creationTime',
     'stripGps', 'meta', 'trim'
 }
 CREATION_TIME = re.compile(
     r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,3})?Z$')
+
+# x264 rate control: a constant quality (CRF, lower is better) in one
+# pass, or a bitrate in kbit/s in one or two passes. x264 refuses a CRF
+# in a second pass.
+CRF_RANGE = (14, 32)
+KBPS_RANGE = (100, 100_000)
 
 # Cut points go to ffmpeg in milliseconds, so a trim keeps at least one.
 SHORTEST_CUT = 0.001
@@ -97,9 +104,6 @@ def parse_settings(raw):
 
     if raw['shortSide'] not in SHORT_SIDES:
         raise ValueError('shortSide')
-    crf = raw['crf']
-    if not isinstance(crf, int) or isinstance(crf, bool) or not 14 <= crf <= 32:
-        raise ValueError('crf')
 
     created = raw['creationTime']
     if created is not None and not (
@@ -114,12 +118,29 @@ def parse_settings(raw):
         'angle': angle,
         'crop': {'x': x, 'y': y, 'w': w, 'h': h},
         'shortSide': raw['shortSide'],
-        'crf': crf,
+        'rate': parse_rate(raw['rate']),
         'creationTime': created,
         'stripGps': raw['stripGps'],
         'meta': parse_meta(raw['meta']),
         'trim': parse_trim(raw['trim'])
     }
+
+
+def parse_rate(raw):
+    if isinstance(raw, dict) and set(raw) == {'crf'}:
+        return {'crf': whole(raw['crf'], *CRF_RANGE)}
+    if isinstance(raw, dict) and set(raw) == {'kbps', 'passes'}:
+        return {'kbps': whole(raw['kbps'], *KBPS_RANGE),
+                'passes': whole(raw['passes'], 1, 2)}
+    raise ValueError('rate')
+
+
+def whole(value, low, high):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError('not a whole number')
+    if not low <= value <= high:
+        raise ValueError('out of range')
+    return value
 
 
 # The part of the clip to keep, in seconds, or None for all of it.
@@ -245,21 +266,33 @@ def build_filters(settings, lut_path):
     return ','.join(chain)
 
 
-def ffmpeg_args(source, target, settings, lut_path, place):
-    return [
-        'ffmpeg', '-hide_banner', '-nostdin', '-y', *cut(settings['trim']),
-        '-i', str(source),
-        '-map', '0:v:0', '-map', '0:a:0?',
-        '-vf', build_filters(settings, lut_path),
-        '-c:v', 'libx264', '-preset', 'medium', '-crf', str(settings['crf']),
+# The ffmpeg runs of an export, in order. Two passes start with a run
+# that only writes x264's statistics next to the target; its video goes
+# to the null device, since stdout carries the progress.
+def ffmpeg_commands(source, target, settings, lut_path, place):
+    rate = settings['rate']
+    control = (['-crf', str(rate['crf'])] if 'crf' in rate
+               else ['-b:v', f"{rate['kbps']}k"])
+    head = ['ffmpeg', '-hide_banner', '-nostdin', '-y',
+            *cut(settings['trim']), '-i', str(source), '-map', '0:v:0']
+    video = ['-vf', build_filters(settings, lut_path),
+             '-c:v', 'libx264', '-preset', 'medium', *control]
+    report = ['-progress', 'pipe:1', '-nostats', '-loglevel', 'error']
+    final = [
+        *head, '-map', '0:a:0?', *video,
         '-colorspace', 'bt709', '-color_primaries', 'bt709',
         '-color_trc', 'bt709',
         '-c:a', 'aac', '-b:a', '160k',
         '-map_metadata', '0', *metadata(settings, place),
-        '-movflags', '+faststart',
-        '-progress', 'pipe:1', '-nostats', '-loglevel', 'error',
-        str(target)
+        '-movflags', '+faststart', *report
     ]
+    if rate.get('passes') != 2:
+        return [[*final, str(target)]]
+
+    log = ['-passlogfile', str(target.with_name('passlog'))]
+    first = [*head, *video, '-pass', '1', *log, *report,
+             '-f', 'null', os.devnull]
+    return [first, [*final, '-pass', '2', *log, str(target)]]
 
 
 # Seeking in the input while re-encoding decodes from the keyframe
@@ -342,25 +375,62 @@ def progress_share(line, total):
         return None
 
 
-# ffmpeg's errors go to a file, since a damaged clip can log more than a
-# pipe holds before its progress ends.
-def export_video(source, target, settings, lut_path, on_progress=None):
+# Each ffmpeg run counts for an equal share of the progress.
+def export_video(source, target, settings, lut_path, on_progress=None,
+                 runner=None):
+    runner = runner or Runner()
     total = duration_of(source, settings['trim'])
     place = place_of(settings, source)
-    args = ffmpeg_args(source, target, settings, lut_path, place)
-    with (tempfile.TemporaryFile() as log,
-          subprocess.Popen(args, stdout=subprocess.PIPE, stderr=log,
-                           text=True) as process):
-        for line in process.stdout:
-            share = progress_share(line, total)
-            if on_progress and share is not None:
-                on_progress(share)
-        if process.wait() != 0:
-            log.seek(0)
-            error = log.read().decode(errors='replace').strip()
-            raise RuntimeError(error or 'ffmpeg failed')
+    commands = ffmpeg_commands(source, target, settings, lut_path, place)
+    for done, args in enumerate(commands):
+        def report(share, done=done):
+            if on_progress:
+                on_progress((done + share) / len(commands))
+        run_ffmpeg(runner, args, total, report)
     if place:
         add_place(target, place)
+
+
+# ffmpeg's errors go to a file, since a damaged clip can log more than a
+# pipe holds before its progress ends.
+def run_ffmpeg(runner, args, total, report):
+    with (tempfile.TemporaryFile() as log,
+          runner.start(args, log) as process):
+        for line in process.stdout:
+            share = progress_share(line, total)
+            if share is not None:
+                report(share)
+        if process.wait() == 0:
+            return
+        if runner.stopped:
+            raise RuntimeError('cancelled')
+        log.seek(0)
+        error = log.read().decode(errors='replace').strip()
+        raise RuntimeError(error or 'ffmpeg failed')
+
+
+# Starts a job's ffmpeg runs one at a time. Stopping kills the run in
+# progress and refuses any later one, under one lock, so a pass that
+# is about to start cannot slip past a cancel.
+class Runner:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.stopped = False
+        self.process = None
+
+    def start(self, args, log):
+        with self.lock:
+            if self.stopped:
+                raise RuntimeError('cancelled')
+            self.process = subprocess.Popen(
+                args, stdout=subprocess.PIPE, stderr=log, text=True)
+            return self.process
+
+    def stop(self):
+        with self.lock:
+            self.stopped = True
+            if self.process:
+                self.process.kill()
 
 
 # ─── MP4 location ────────────────────────────────────────────────────
@@ -482,7 +552,8 @@ class Jobs:
             'state': 'running',
             'progress': 0.0,
             'error': None,
-            'started': time.time()
+            'started': time.time(),
+            'runner': Runner()
         }
         with self.lock:
             self.items[job['id']] = job
@@ -502,7 +573,7 @@ class Jobs:
         # never fetches a failed job's result.
         try:
             export_video(folder / 'input', folder / 'output.mp4', settings,
-                         folder / 'lut.cube', progress)
+                         folder / 'lut.cube', progress, job['runner'])
             job['state'] = 'done'
             job['progress'] = 1.0
         except Exception as error:
@@ -510,9 +581,25 @@ class Jobs:
             job['error'] = str(error)[-500:]
             job['state'] = 'failed'
 
+        # A job cancelled while it ran goes as soon as it ends.
+        if job['runner'].stopped:
+            self.finish(job['id'])
+
     def get(self, job_id):
         with self.lock:
             return self.items.get(job_id)
+
+    # Stops a running job, which then removes itself, and removes an
+    # ended one at once. The state is read after the stop, so a job that
+    # ends in between is removed by one side or the other.
+    def cancel(self, job_id):
+        job = self.get(job_id)
+        if not job:
+            return False
+        job['runner'].stop()
+        if job['state'] != 'running':
+            self.finish(job_id)
+        return True
 
     def finish(self, job_id):
         with self.lock:
@@ -581,12 +668,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             table = parse_lut(self.rfile.read(lut_length).decode('ascii'))
             (folder / 'lut.cube').write_text(table)
             self.receive(folder / 'input', length - lut_length)
+        except ConnectionError:
+            # The page stopped sending, as a cancel does, and waits for
+            # no answer.
+            shutil.rmtree(folder, ignore_errors=True)
+            self.close_connection = True
+            return None
         except (ValueError, UnicodeDecodeError, OSError) as error:
             shutil.rmtree(folder, ignore_errors=True)
             return self.reply(400, {'error': f'bad upload: {error}'})
 
         job = self.server.jobs.start(folder, settings)
         return self.reply(200, {'job': job['id']})
+
+    def do_DELETE(self):
+        path = urllib.parse.urlsplit(self.path).path
+        if not self.permitted(token=True):
+            return self.reply(403, {'error': 'forbidden'})
+
+        parts = path.split('/')
+        found = len(parts) == 4 and parts[:3] == ['', 'api', 'videos']
+        if not found or not self.server.jobs.cancel(parts[3]):
+            return self.reply(404, {'error': 'not found'})
+        return self.reply(200, {})
 
     def permitted(self, token):
         host = self.headers.get('Host')
@@ -603,7 +707,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             while remaining > 0:
                 chunk = self.rfile.read(min(CHUNK, remaining))
                 if not chunk:
-                    raise OSError('upload ended early')
+                    raise ConnectionAbortedError('upload ended early')
                 out.write(chunk)
                 remaining -= len(chunk)
 

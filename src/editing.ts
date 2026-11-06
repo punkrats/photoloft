@@ -393,13 +393,14 @@ export async function autoSelection(state: AppState) {
   if (!state.dirs || ids.length === 0 || state.progress) return
 
   const total = ids.length
-  const progress = { label: 'Auto', done: 0, total, cancelled: false }
+  const cancel = new AbortController()
+  const progress = { label: 'Auto', done: 0, total, cancel }
   state.progress = progress
   render(state)
 
   const results = new Map<string, Partial<Colour>>()
   for (const id of ids) {
-    if (progress.cancelled) break
+    if (cancel.signal.aborted) break
     try {
       const sample = await autoSample(state.dirs, state.library!.photos[id])
       results.set(id, autoTone(sample, state.library!.photos[id].edit))

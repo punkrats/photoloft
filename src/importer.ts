@@ -42,7 +42,8 @@ export async function importEntries(
   }
 
   const progress = {
-    label: 'Looking for photos', done: 0, total: 0, cancelled: false
+    label: 'Looking for photos', done: 0, total: 0,
+    cancel: new AbortController()
   }
   state.progress = progress
   const ticker = window.setInterval(() => render(state), 250)
@@ -50,9 +51,10 @@ export async function importEntries(
     .finally(() => clearInterval(ticker))
 
   const { files, skipped } = found
-  if (progress.cancelled || files.length === 0) {
+  const cancelled = progress.cancel.signal.aborted
+  if (cancelled || files.length === 0) {
     state.progress = null
-    if (!progress.cancelled) showToast(state, 'No photos or videos found.')
+    if (!cancelled) showToast(state, 'No photos or videos found.')
     render(state)
     return
   }
@@ -63,7 +65,7 @@ export async function importEntries(
   const outcomes: Outcome[] = []
   const seen = new Set<string>()
   await pool(files, PARALLEL, async file => {
-    if (progress.cancelled) return
+    if (progress.cancel.signal.aborted) return
     outcomes.push(await importFile(state, file, seen))
     progress.done++
     render(state)

@@ -293,7 +293,7 @@ export async function collectFiles(
   let skipped = 0
 
   const visit = async (entry: File | FileSystemHandle): Promise<void> => {
-    if (progress.cancelled || entry.name.startsWith('.')) return
+    if (progress.cancel.signal.aborted || entry.name.startsWith('.')) return
     if (entry instanceof File) {
       if (isJpegName(entry.name) || videoExt(entry.name)) files.push(entry)
       else skipped++

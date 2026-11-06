@@ -3,8 +3,10 @@
 # Tests for serve.py. Run with: python3 -m unittest scripts/test_serve.py
 
 import json
+import os
 import pathlib
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -28,7 +30,7 @@ GOOD = {
     'angle': 0,
     'crop': {'x': 0, 'y': 0, 'w': 1, 'h': 1},
     'shortSide': 720,
-    'crf': 20,
+    'rate': {'crf': 20},
     'creationTime': None,
     'stripGps': True,
     'meta': {},
@@ -127,7 +129,6 @@ class Settings(unittest.TestCase):
             {'rotate': 45},
             {'angle': 50},
             {'shortSide': 999},
-            {'crf': 'x'},
             {'flip': 'yes'},
             {'crop': {'x': 0.5, 'y': 0, 'w': 0.8, 'h': 1}},
             {'crop': {'x': 0, 'y': 0, 'w': 0, 'h': 1}},
@@ -141,6 +142,34 @@ class Settings(unittest.TestCase):
     def test_rejects_unknown_keys(self):
         with self.assertRaises(ValueError):
             serve.parse_settings({**GOOD, 'filter': 'movie=/etc/passwd'})
+
+    def test_accepts_a_quality_or_a_bitrate(self):
+        rates = [{'crf': 14}, {'crf': 32}, {'kbps': 100, 'passes': 1},
+                 {'kbps': 100000, 'passes': 2}]
+        for rate in rates:
+            parsed = serve.parse_settings({**GOOD, 'rate': rate})
+            self.assertEqual(parsed['rate'], rate)
+
+    def test_rejects_bad_rates(self):
+        bad = [
+            None,
+            {},
+            {'crf': 'x'},
+            {'crf': 13},
+            {'crf': 33},
+            {'crf': 20.5},
+            {'crf': True},
+            {'kbps': 8000},
+            {'kbps': 99, 'passes': 1},
+            {'kbps': 100001, 'passes': 1},
+            {'kbps': '8000', 'passes': 1},
+            {'kbps': 8000, 'passes': 3},
+            {'kbps': 8000, 'passes': True},
+            {'crf': 20, 'kbps': 8000, 'passes': 1}
+        ]
+        for rate in bad:
+            with self.assertRaises(ValueError, msg=rate):
+                serve.parse_settings({**GOOD, 'rate': rate})
 
     def test_requires_location_info_and_trim_settings(self):
         for key in ('stripGps', 'meta', 'trim'):
@@ -289,10 +318,53 @@ class Filters(unittest.TestCase):
         self.assertIn('trunc(iw/2)*2', chain)
 
 
+class Commands(unittest.TestCase):
+    def commands(self, rate):
+        settings = {**GOOD, 'rate': rate}
+        target = pathlib.Path('/job/output.mp4')
+        return serve.ffmpeg_commands('in.mp4', target, settings, 'l.cube',
+                                     None)
+
+    def test_encodes_a_constant_quality_once(self):
+        [args] = self.commands({'crf': 24})
+        self.assertIn('-crf', args)
+        self.assertEqual(args[args.index('-crf') + 1], '24')
+        self.assertNotIn('-b:v', args)
+        self.assertNotIn('-pass', args)
+        self.assertEqual(args[-1], '/job/output.mp4')
+
+    def test_encodes_a_bitrate_once(self):
+        [args] = self.commands({'kbps': 8000, 'passes': 1})
+        self.assertEqual(args[args.index('-b:v') + 1], '8000k')
+        self.assertNotIn('-crf', args)
+        self.assertNotIn('-pass', args)
+
+    def test_encodes_a_bitrate_in_two_passes(self):
+        first, second = self.commands({'kbps': 2500, 'passes': 2})
+        for args, number in ((first, '1'), (second, '2')):
+            self.assertEqual(args[args.index('-b:v') + 1], '2500k')
+            self.assertEqual(args[args.index('-pass') + 1], number)
+            log = args[args.index('-passlogfile') + 1]
+            self.assertEqual(log, '/job/passlog')
+            self.assertEqual(args[args.index('-progress') + 1], 'pipe:1')
+
+        # The first pass only analyses the video and writes no file.
+        self.assertEqual(first[-3:], ['-f', 'null', os.devnull])
+        self.assertNotIn('0:a:0?', first)
+        self.assertNotIn('-metadata', first)
+        self.assertEqual(second[-1], '/job/output.mp4')
+        self.assertIn('0:a:0?', second)
+        self.assertEqual(first[first.index('-vf') + 1],
+                         second[second.index('-vf') + 1])
+
+
 class Cut(unittest.TestCase):
     def args(self, trim):
         settings = {**GOOD, 'trim': trim}
-        return serve.ffmpeg_args('in.mp4', 'out.mp4', settings, 'l.cube', None)
+        target = pathlib.Path('out.mp4')
+        commands = serve.ffmpeg_commands('in.mp4', target, settings, 'l.cube',
+                                         None)
+        return commands[-1]
 
     def test_reads_the_whole_input_without_a_trim(self):
         args = self.args(None)
@@ -455,6 +527,18 @@ class Export(unittest.TestCase):
         for length in lengths:
             self.assertAlmostEqual(float(length), 1.2, delta=0.05)
 
+    def test_encodes_two_passes_near_the_asked_bitrate(self):
+        rate = {'kbps': 400, 'passes': 2}
+        settings = {**GOOD, 'shortSide': 0, 'rate': rate}
+        out = self.export('clip.mp4', settings, lut())
+        args = ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'stream=bit_rate', '-of', 'csv=p=0',
+                str(out)]
+        bitrate = int(subprocess.check_output(args).decode().strip())
+        self.assertAlmostEqual(bitrate / 1000, 400, delta=120)
+        source = thumbnails(FIXTURES / 'clip.mp4')
+        self.assertEqual(len(thumbnails(out)), len(source))
+
     def test_counts_progress_against_the_trimmed_length(self):
         shares = []
         lut_path = self.dir / 'lut.cube'
@@ -483,9 +567,9 @@ class FfmpegOutput(unittest.TestCase):
 
     # Runs the export in a thread, so a stall fails the test instead of
     # hanging the suite. Returns the shares reported and the error.
-    def export(self, script):
+    def export(self, *scripts):
         shares, outcome = [], []
-        args = [sys.executable, '-c', script]
+        commands = [[sys.executable, '-c', script] for script in scripts]
 
         def run():
             try:
@@ -495,7 +579,8 @@ class FfmpegOutput(unittest.TestCase):
             except Exception as error:
                 outcome.append(error)
 
-        with mock.patch.object(serve, 'ffmpeg_args', return_value=args):
+        with mock.patch.object(serve, 'ffmpeg_commands',
+                               return_value=commands):
             worker = threading.Thread(target=run, daemon=True)
             worker.start()
             worker.join(20)
@@ -509,6 +594,27 @@ class FfmpegOutput(unittest.TestCase):
         shares, error = self.export(f'print({reports!r})')
         self.assertIsNone(error)
         self.assertEqual(shares, [0.25, 0.75, 1.0])
+
+    def test_counts_each_of_two_passes_as_half(self):
+        reports = ''.join(f'out_time_us={t}\nprogress=continue\n'
+                          for t in ('1000000', '2000000'))
+        shares, error = self.export(f'print({reports!r})',
+                                    f'print({reports!r})')
+        self.assertIsNone(error)
+        self.assertEqual(shares, [0.25, 0.5, 0.75, 1.0])
+
+    def test_reports_the_failing_pass_alone(self):
+        script = '\n'.join([
+            'import sys',
+            "sys.stderr.write('pass one warning\\n')",
+        ])
+        failing = '\n'.join([
+            'import sys',
+            "sys.stderr.write('pass two broke\\n')",
+            'sys.exit(1)'
+        ])
+        _, error = self.export(script, failing)
+        self.assertEqual(str(error), 'pass two broke')
 
     def test_reads_more_errors_than_a_pipe_holds(self):
         script = '\n'.join([
@@ -541,6 +647,66 @@ class Job(unittest.TestCase):
         self.assertIn('Invalid data', job['error'])
         self.assertFalse(folder.exists())
 
+    def test_cancel_stops_ffmpeg_and_removes_the_job(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        shutil.copy(FIXTURES / 'clip.mp4', folder / 'input')
+        endless = '\n'.join([
+            'import time',
+            'while True:',
+            "    print('out_time_us=N/A', flush=True)",
+            '    time.sleep(0.05)'
+        ])
+        jobs = serve.Jobs()
+        commands = [[sys.executable, '-c', endless]] * 2
+        with mock.patch.object(serve, 'ffmpeg_commands',
+                               return_value=commands):
+            job = jobs.start(folder, GOOD)
+            runner = job['runner']
+            self.assertTrue(wait(lambda: runner.process is not None))
+            process = runner.process
+
+            self.assertTrue(jobs.cancel(job['id']))
+            self.assertTrue(wait(lambda: jobs.get(job['id']) is None))
+        self.assertIsNotNone(process.poll())
+        self.assertIs(runner.process, process, 'a second pass started')
+        self.assertFalse(folder.exists())
+
+    def test_cancel_removes_a_finished_job(self):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        shutil.copy(FIXTURES / 'clip.mp4', folder / 'input')
+        jobs = serve.Jobs()
+        with mock.patch.object(serve, 'ffmpeg_commands',
+                               return_value=[[sys.executable, '-c', '']]):
+            job = jobs.start(folder, GOOD)
+            self.assertTrue(wait(lambda: job['state'] == 'done'))
+        self.assertTrue(folder.exists())
+
+        self.assertTrue(jobs.cancel(job['id']))
+        self.assertIsNone(jobs.get(job['id']))
+        self.assertFalse(folder.exists())
+        self.assertFalse(jobs.cancel(job['id']))
+
+
+class Runner(unittest.TestCase):
+    def test_starts_nothing_once_stopped(self):
+        runner = serve.Runner()
+        runner.stop()
+        with tempfile.TemporaryFile() as log:
+            with self.assertRaises(RuntimeError):
+                runner.start([sys.executable, '-c', ''], log)
+        self.assertIsNone(runner.process)
+
+
+def wait(condition, seconds=10):
+    end = time.time() + seconds
+    while time.time() < end:
+        if condition():
+            return True
+        time.sleep(0.02)
+    return False
+
 
 @unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
 class Api(unittest.TestCase):
@@ -553,14 +719,25 @@ class Api(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
 
-    def call(self, path, data=None, headers=None):
+    def call(self, path, data=None, headers=None, method=None):
         url = f'http://127.0.0.1:{self.port}{path}'
-        request = urllib.request.Request(url, data=data, headers=headers or {})
+        request = urllib.request.Request(url, data=data, headers=headers or {},
+                                         method=method)
         with urllib.request.urlopen(request) as response:
             return response.read()
 
-    # Runs an export the way the page does and returns the result file.
-    def export(self, settings):
+    # The HTTP status a request ends with.
+    def code(self, path, headers, method=None):
+        try:
+            self.call(path, None, headers, method)
+        except urllib.error.HTTPError as error:
+            error.close()
+            return error.code
+        return 200
+
+    # Starts an export the way the page does; returns the job and the
+    # headers that reach it.
+    def start(self, settings):
         token = json.loads(self.call('/api/token'))['token']
         table = lut().encode()
         body = table + (FIXTURES / 'clip.mp4').read_bytes()
@@ -570,6 +747,11 @@ class Api(unittest.TestCase):
             'X-Photoloft-Lut-Length': str(len(table))
         }
         job = json.loads(self.call('/api/videos', body, headers))['job']
+        return job, headers
+
+    # Runs an export the way the page does and returns the result file.
+    def export(self, settings):
+        job, headers = self.start(settings)
 
         status = {}
         for _ in range(100):
@@ -594,11 +776,69 @@ class Api(unittest.TestCase):
         self.assertIn('Caf\\u00e9 \\u00a9', settings)
         self.assertEqual(tags(self.export(settings))['title'], 'Café ©')
 
+    def test_exports_two_passes_through_the_api(self):
+        rate = {'kbps': 500, 'passes': 2}
+        out = self.export(json.dumps({**GOOD, 'rate': rate}))
+        self.assertEqual(probe(out)[0]['codec_type'], 'video')
+
+    def test_cancels_a_job_through_the_api(self):
+        job, headers = self.start(json.dumps(GOOD))
+        path = f'/api/videos/{job}'
+        self.assertEqual(self.call(path, None, headers, 'DELETE'), b'{}')
+        self.assertTrue(wait(lambda: self.code(path, headers) == 404))
+        self.assertEqual(self.code(path, headers, 'DELETE'), 404)
+
     def test_refuses_requests_without_the_token(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.call('/api/videos', b'x', {'X-Photoloft-Token': 'wrong'})
         caught.exception.close()
         self.assertEqual(caught.exception.code, 403)
+
+    # A cancelled upload ends the request: the server removes the upload
+    # and sends no answer, which would only meet a closed connection.
+    def test_drops_an_upload_the_page_stops_quietly(self):
+        token = json.loads(self.call('/api/token'))['token']
+        table = lut().encode()
+        head = '\r\n'.join([
+            'POST /api/videos HTTP/1.1',
+            f'Host: 127.0.0.1:{self.port}',
+            f'X-Photoloft-Token: {token}',
+            f'X-Photoloft-Settings: {json.dumps(GOOD)}',
+            f'X-Photoloft-Lut-Length: {len(table)}',
+            f'Content-Length: {len(table) + 50_000_000}',
+            '', ''
+        ])
+
+        made, raised, done = [], [], threading.Event()
+        mkdtemp, post = tempfile.mkdtemp, serve.Handler.do_POST
+
+        def making(**kwargs):
+            made.append(mkdtemp(**kwargs))
+            return made[-1]
+
+        def posting(handler):
+            try:
+                post(handler)
+            except Exception as error:
+                raised.append(error)
+            finally:
+                done.set()
+
+        with (mock.patch.object(serve.tempfile, 'mkdtemp', making),
+              mock.patch.object(serve.Handler, 'do_POST', posting)):
+            with socket.create_connection(('127.0.0.1', self.port)) as page:
+                page.sendall(head.encode() + table + b'x' * 1_000_000)
+            self.assertTrue(done.wait(10))
+        self.assertEqual(raised, [])
+        self.assertEqual(len(made), 1)
+        self.assertFalse(pathlib.Path(made[0]).exists())
+
+    def test_refuses_a_cancel_without_the_token(self):
+        job, headers = self.start(json.dumps(GOOD))
+        path = f'/api/videos/{job}'
+        wrong = {'X-Photoloft-Token': 'wrong'}
+        self.assertEqual(self.code(path, wrong, 'DELETE'), 403)
+        self.assertEqual(self.code(path, headers), 200)
 
 
 if __name__ == '__main__':

@@ -39,6 +39,7 @@ export function sidebar(state: AppState, lib: Library) {
               class="icon-button"
               data-action="export-all"
               title="Export all albums"
+              ?disabled=${state.progress !== null}
             >
               <i class="icon-download"></i>
             </button>

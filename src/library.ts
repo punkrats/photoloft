@@ -31,6 +31,10 @@ export type TrimEdge = keyof Trim
 // The shortest part of a clip a trim keeps, in seconds.
 export const MIN_TRIM = 1
 
+// The video CRFs and bitrates (Mbit/s) the Photoloft service takes.
+export const VIDEO_CRF = { min: 14, max: 32 }
+const VIDEO_BITRATE = { min: 0.1, max: 100 }
+
 // Slack for sums of decimals: 1.4 - 0.4 is 0.9999999999999999.
 const SLACK = 1e-6
 
@@ -66,6 +70,8 @@ export type MetaChange = {
   [K in keyof Meta]?: FieldChange<Exclude<Meta[K], undefined>>
 }
 
+// Videos take a constant quality (`videoCrf`, x264's CRF, lower is
+// better) or a bitrate in Mbit/s, which may go in two passes.
 export type ExportSettings = {
   naming: 'album' | 'original'
   longEdge: number | null
@@ -73,6 +79,10 @@ export type ExportSettings = {
   quality: number
   stripGps: boolean
   videoSide: 0 | 720 | 1080
+  videoEncoding: 'quality' | 'bitrate'
+  videoCrf: number
+  videoBitrate: number
+  videoTwoPass: boolean
 }
 
 export type Library = {
@@ -115,7 +125,11 @@ const DEFAULT_EXPORT: ExportSettings = {
   maxBytes: null,
   quality: 90,
   stripGps: true,
-  videoSide: 720
+  videoSide: 720,
+  videoEncoding: 'quality',
+  videoCrf: 20,
+  videoBitrate: 8,
+  videoTwoPass: false
 }
 
 export function emptyLibrary(): Library {
@@ -787,8 +801,24 @@ function migrateExport(raw: Raw): ExportSettings {
     stripGps: typeof raw.stripGps === 'boolean' ? raw.stripGps : true,
     videoSide: raw.videoSide === 0 || raw.videoSide === 1080
       ? raw.videoSide
-      : 720
+      : 720,
+    videoEncoding: raw.videoEncoding === 'bitrate' ? 'bitrate' : 'quality',
+    videoCrf: videoCrf(num(raw.videoCrf, DEFAULT_EXPORT.videoCrf)),
+    videoBitrate: videoBitrate(num(raw.videoBitrate, 0)),
+    videoTwoPass: raw.videoTwoPass === true
   }
+}
+
+// A CRF the service takes: whole and within range.
+export function videoCrf(value: number) {
+  return clamp(Math.round(value), VIDEO_CRF.min, VIDEO_CRF.max)
+}
+
+// A bitrate the service takes; none, zero or a negative one gives the
+// default.
+export function videoBitrate(value: number) {
+  if (!(value > 0)) return DEFAULT_EXPORT.videoBitrate
+  return clamp(value, VIDEO_BITRATE.min, VIDEO_BITRATE.max)
 }
 
 function record(value: unknown): Raw {

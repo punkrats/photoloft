@@ -4,8 +4,8 @@ import { live } from 'lit-html/directives/live.js'
 import { formatShift, formatTaken } from '../format'
 import { closeView, formatLocation, WORLD_VIEW } from '../geo'
 import {
-  albumsByName, retime, setMeta, viewPhotos, type Album, type Library,
-  type MetaChange
+  albumsByName, retime, setMeta, VIDEO_CRF, viewPhotos, type Album,
+  type Library, type MetaChange
 } from '../library'
 import type { Meta } from '../meta'
 import {
@@ -238,8 +238,8 @@ function exportForm(lib: Library, form: ExportForm) {
       <div class="form-row">
         <span class="form-label">File names</span>
         <div class="segmented">
-          ${segment(form.naming === 'album', 'album', 'Album name and number')}
-          ${segment(form.naming === 'original', 'original', 'Photo names')}
+          ${segment(form, 'naming', 'album', 'Album name and number')}
+          ${segment(form, 'naming', 'original', 'Photo names')}
         </div>
       </div>
       ${form.naming === 'album' ? naming(form, single, lib) : nothing}
@@ -294,23 +294,7 @@ function exportForm(lib: Library, form: ExportForm) {
           Remove camera locations
         </span>
       </label>
-      ${hasVideos(lib, albums.map(a => a.id))
-        ? html`
-          <label class="form-row">
-            <span class="form-label">Videos</span>
-            <select data-change="export-field" data-field="videoSide">
-              ${VIDEO_SIDES.map(([value, label]) => html`
-                <option value=${value} ?selected=${form.videoSide === value}>
-                  ${label}
-                </option>
-              `)}
-            </select>
-          </label>
-          <p class="form-note">
-            Size, file size limit and quality apply to photos.
-          </p>
-        `
-        : nothing}
+      ${hasVideos(lib, albums.map(a => a.id)) ? videoRows(form) : nothing}
       ${single
         ? folderRow(single, form)
         : html`<p class="form-note">Each album is saved to its own folder.</p>`}
@@ -321,6 +305,77 @@ function exportForm(lib: Library, form: ExportForm) {
         <i class="icon-download"></i> Export
       </button>
     </div>
+  `
+}
+
+// Video size and encoding: a constant quality, or a bitrate that may
+// go in two passes.
+function videoRows(form: ExportForm) {
+  const quality = form.videoEncoding === 'quality'
+  return html`
+    <label class="form-row">
+      <span class="form-label">Videos</span>
+      <select data-change="export-field" data-field="videoSide">
+        ${VIDEO_SIDES.map(([value, label]) => html`
+          <option value=${value} ?selected=${form.videoSide === value}>
+            ${label}
+          </option>
+        `)}
+      </select>
+    </label>
+    <div class="form-row">
+      <span class="form-label">Video encoding</span>
+      <div class="segmented">
+        ${segment(form, 'videoEncoding', 'quality', 'Constant quality')}
+        ${segment(form, 'videoEncoding', 'bitrate', 'Bitrate')}
+      </div>
+    </div>
+    ${quality ? crfRow(form) : bitrateRows(form)}
+    <p class="form-note">
+      Size, file size limit and quality apply to photos.
+    </p>
+  `
+}
+
+// Lower CRFs give better videos. The slider runs from the highest CRF
+// on the left to the lowest on the right, so better quality lies to
+// the right, as on the photo Quality slider.
+function crfRow(form: ExportForm) {
+  return html`
+    <label class="form-row">
+      <span class="form-label">Video quality</span>
+      <input
+        class="slider-reversed"
+        type="range"
+        min=${VIDEO_CRF.min}
+        max=${VIDEO_CRF.max}
+        step="1"
+        .value=${live(String(form.videoCrf))}
+        data-input="export-field"
+        data-field="videoCrf"
+      >
+      <output class="form-value">CRF ${form.videoCrf}</output>
+    </label>
+  `
+}
+
+function bitrateRows(form: ExportForm) {
+  return html`
+    <label class="form-row">
+      <span class="form-label">Video bitrate</span>
+      ${numberField('videoBitrate', form.videoBitrate, 'Mbps')}
+    </label>
+    <label class="form-indent">
+      <span class="checkbox">
+        <input
+          type="checkbox"
+          .checked=${live(form.videoTwoPass)}
+          data-change="export-field"
+          data-field="videoTwoPass"
+        >
+        2-pass
+      </span>
+    </label>
   `
 }
 
@@ -381,11 +436,16 @@ function hasVideos(lib: Library, albumIds: string[]) {
   })
 }
 
-function segment(on: boolean, value: string, label: string) {
+function segment(
+  form: ExportForm, field: 'naming' | 'videoEncoding', value: string,
+  label: string
+) {
+  const on = form[field] === value
   return html`
     <button
       class=${classMap({ chip: true, on })}
-      data-action="export-naming"
+      data-action="export-choice"
+      data-field=${field}
       data-value=${value}
     >
       ${label}

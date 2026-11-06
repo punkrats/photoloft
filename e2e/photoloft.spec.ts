@@ -1770,6 +1770,119 @@ test('imports, plays, grades and exports videos', async ({ page }) => {
   })
 })
 
+// Puts clip.mp4 into a new album Trip and opens it.
+async function clipAlbum(page: Page) {
+  await openLibrary(page)
+  await importPhotos(page, ['clip.mp4'])
+  await cell(page, 'clip.mp4').click()
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Trip')
+  await page.locator('.nav-item', { hasText: 'Trip' }).click()
+}
+
+// The video settings the page sends with its next export.
+function sentVideoSettings(page: Page) {
+  return page.waitForRequest(request => {
+    return request.method() === 'POST' && request.url().endsWith('/api/videos')
+  }).then(request => {
+    return JSON.parse(request.headers()['x-photoloft-settings'])
+  })
+}
+
+test('cancels a video export while ffmpeg runs', async ({ page }) => {
+  await clipAlbum(page)
+
+  // The service answers every status poll with a job still at 40 %;
+  // the upload and the cancel reach the service itself.
+  await page.route(/\/api\/videos\/[0-9a-f]+$/, route => {
+    if (route.request().method() !== 'GET') return route.continue()
+    const json = { state: 'running', progress: 0.4, error: null }
+    return route.fulfill({ json })
+  })
+  await openExport(page)
+  await page.locator('.dialog').getByRole('button', { name: 'Export' }).click()
+  await expect(page.locator('.progress-label')).
+    toHaveText('Exporting (video 40 %) 0 / 1')
+
+  // No second export starts beside it.
+  const exportAll = page.locator('[data-action="export-all"]')
+  await expect(page.locator('[data-action="export-album"]')).toBeDisabled()
+  await expect(exportAll).toBeDisabled()
+  await exportAll.click({ force: true })
+  await expect(page.locator('.dialog')).toBeHidden()
+
+  const cancelled = page.waitForResponse(response => {
+    return response.request().method() === 'DELETE'
+  })
+  await page.locator('[data-action="cancel-progress"]').click()
+  await expect(page.locator('.toast')).
+    toHaveText('Export cancelled. Exported 0 files to Exports/Trip.')
+  expect((await cancelled).status()).toBe(200)
+  await expect(page.locator('[data-action="export-album"]')).toBeEnabled()
+  await expect(page.locator('.progress')).toBeHidden()
+
+  // The service has dropped the job, and nothing was written.
+  await page.unrouteAll()
+  const job = new URL((await cancelled).url()).pathname
+  const status = () => page.evaluate(async job => {
+    const { token } = await (await fetch('/api/token')).json()
+    const headers = { 'X-Photoloft-Token': token }
+    return (await fetch(job, { headers })).status
+  }, job)
+  await expect.poll(status).toBe(404)
+  expect(await listFiles(page, ['library', 'Exports', 'Trip'])).toEqual([])
+})
+
+test('exports a video at a quality or a bitrate', async ({ page }) => {
+  await clipAlbum(page)
+  const dialog = page.locator('.dialog')
+  const chips = dialog.locator('[data-field="videoEncoding"]')
+  const crf = dialog.locator('[data-field="videoCrf"]')
+  const bitrate = dialog.locator('[data-field="videoBitrate"]')
+  const twoPass = dialog.locator('[data-field="videoTwoPass"]')
+
+  // Constant quality at CRF 20 by default, better to the right.
+  await openExport(page)
+  await expect(chips.filter({ hasText: 'Constant quality' })).
+    toHaveClass(/\bon\b/)
+  await expect(crf).toHaveValue('20')
+  await expect(crf).toHaveCSS('direction', 'rtl')
+  await expect(dialog.locator('output', { hasText: 'CRF' })).
+    toHaveText('CRF 20')
+  await crf.fill('26')
+  await expect(dialog.locator('output', { hasText: 'CRF' })).
+    toHaveText('CRF 26')
+  let sent = sentVideoSettings(page)
+  await dialog.getByRole('button', { name: 'Export' }).click()
+  expect((await sent).rate).toEqual({ crf: 26 })
+  await expect(page.locator('.toast')).toContainText('Exported 1 file')
+
+  // A bitrate, in two passes.
+  await openExport(page)
+  await expect(crf).toHaveValue('26')
+  await chips.filter({ hasText: 'Bitrate' }).click()
+  await expect(crf).toBeHidden()
+  await expect(bitrate).toHaveValue('8')
+  await expect(twoPass).not.toBeChecked()
+  await bitrate.fill('2.5')
+  await twoPass.check()
+  sent = sentVideoSettings(page)
+  await dialog.getByRole('button', { name: 'Export' }).click()
+  expect((await sent).rate).toEqual({ kbps: 2500, passes: 2 })
+  await expect(page.locator('.toast')).toContainText('Exported 1 file')
+
+  const folder = ['library', 'Exports', 'Trip']
+  expect(await listFiles(page, folder)).toEqual(['Trip-001.mp4'])
+  const video = inspectVideo(await readFile(page, [...folder, 'Trip-001.mp4']))
+  expect(video.size).toBe('320,240')
+
+  // The dialog keeps the choices for the next export.
+  await openExport(page)
+  await expect(chips.filter({ hasText: 'Bitrate' })).toHaveClass(/\bon\b/)
+  await expect(bitrate).toHaveValue('2.5')
+  await expect(twoPass).toBeChecked()
+})
+
 test('trims a video with keys and grips', async ({ page }) => {
   const transport = page.locator('.transport')
   const bar = page.locator('.transport-bar')

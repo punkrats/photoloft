@@ -22,7 +22,7 @@ import { render } from './render'
 import type { Aspect, SliderKey } from './schema'
 import {
   currentAlbum, endCoalescing, infoForm, selectedIds, showToast, targets,
-  viewIds, type AlbumPick, type AppState, type ExportForm, type InfoField
+  viewIds, type AlbumPick, type AppState, type InfoField
 } from './state'
 import {
   chooseExportFolder, chooseImportFolder, chooseLibrary, deletePhotoFiles,
@@ -593,9 +593,10 @@ export const clicks: Record<string, Handler> = {
   'close-dialog': state => {
     state.dialog = null
   },
-  'export-naming': (state, data) => {
+  'export-choice': (state, data) => {
     if (state.dialog?.kind !== 'export') return
-    state.dialog.form.naming = data.value as ExportForm['naming']
+    const form = state.dialog.form as Record<string, unknown>
+    form[data.field!] = data.value
   },
   'export-choose-folder': state => void chooseAlbumFolder(state),
   'export-library-folder': state => {
@@ -608,7 +609,7 @@ export const clicks: Record<string, Handler> = {
     if (d?.kind === 'export') void runExport(state, d.form)
   },
   'cancel-progress': state => {
-    if (state.progress) state.progress.cancelled = true
+    state.progress?.cancel.abort()
   },
   'dismiss-toast': state => {
     state.toast = null

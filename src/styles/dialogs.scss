@@ -136,6 +136,11 @@ $indent: calc(#{$label-width} + var(--space-2));
   gap: 6px;
 }
 
+// A slider whose value falls as it moves right, such as a video CRF.
+.slider-reversed {
+  direction: rtl;
+}
+
 .checkbox {
   display: flex;
   align-items: center;

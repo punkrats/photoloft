@@ -4,8 +4,8 @@ import { formatList } from './format'
 import { decode, encodeJpeg, offscreen, renderEdit } from './images'
 import {
   setAlbumExportFolder, setAlbumExportName, setExportRecord,
-  setExportSettings, viewPhotos, type Album, type ExportRecord,
-  type ExportSettings, type Library, type Photo
+  setExportSettings, videoBitrate, videoCrf, viewPhotos, type Album,
+  type ExportRecord, type ExportSettings, type Library, type Photo
 } from './library'
 import { encodeWithin } from './limit'
 import {
@@ -31,7 +31,7 @@ type Target = { album: Album, picked: FileSystemDirectoryHandle | null }
 
 export function exportDialog(state: AppState, albumIds: string[]) {
   const lib = state.library
-  if (!lib || albumIds.length === 0) return
+  if (!lib || albumIds.length === 0 || state.progress) return
 
   const s = lib.exportSettings
   const album = albumIds.length === 1
@@ -53,6 +53,10 @@ export function exportDialog(state: AppState, albumIds: string[]) {
     quality: s.quality,
     stripGps: s.stripGps,
     videoSide: String(s.videoSide),
+    videoEncoding: s.videoEncoding,
+    videoCrf: s.videoCrf,
+    videoBitrate: s.videoBitrate,
+    videoTwoPass: s.videoTwoPass,
     folder: album?.exportFolder ?? null,
     picked: null
   }
@@ -76,7 +80,11 @@ export function settingsOf(form: ExportForm): ExportSettings {
     maxBytes: maxBytes && maxBytes > 0 ? maxBytes : null,
     quality: Math.min(100, Math.max(60, form.quality)),
     stripGps: form.stripGps,
-    videoSide: VIDEO_SIDES.find(s => String(s) === form.videoSide) ?? 720
+    videoSide: VIDEO_SIDES.find(s => String(s) === form.videoSide) ?? 720,
+    videoEncoding: form.videoEncoding,
+    videoCrf: videoCrf(form.videoCrf),
+    videoBitrate: videoBitrate(form.videoBitrate),
+    videoTwoPass: form.videoTwoPass
   }
 }
 
@@ -94,7 +102,8 @@ export async function runExport(state: AppState, form: ExportForm) {
   const albums = form.albumIds
     .map(id => lib.albums.find(a => a.id === id))
     .filter((a): a is Album => a !== undefined)
-  const progress = { label: 'Exporting', done: 0, total: 0, cancelled: false }
+  const cancel = new AbortController()
+  const progress = { label: 'Exporting', done: 0, total: 0, cancel }
   state.progress = progress
   render(state)
 
@@ -108,7 +117,7 @@ export async function runExport(state: AppState, form: ExportForm) {
   let over = 0
   const errors: string[] = []
   for (const target of targets) {
-    if (progress.cancelled) break
+    if (cancel.signal.aborted) break
     const result = await exportAlbum(state, target, form, settings, progress)
     over += result.over
     errors.push(...result.errors)
@@ -182,8 +191,9 @@ async function exportAlbum(
   const written: string[] = []
   const errors: string[] = []
   let over = 0
+  // A clip cancelled half way neither counts nor fails.
   for (const [i, photo] of photos.entries()) {
-    if (progress.cancelled) break
+    if (progress.cancel.signal.aborted) break
     try {
       const { blob, fits } = photo.video
         ? await exportClip(state, photo, settings, progress)
@@ -192,6 +202,7 @@ async function exportAlbum(
       written.push(names[i])
       if (!fits) over++
     } catch (error) {
+      if (progress.cancel.signal.aborted) break
       errors.push(error instanceof Error ? error.message : String(error))
     }
     progress.done++
@@ -207,12 +218,16 @@ async function exportClip(
   state: AppState, photo: Photo, settings: ExportSettings, progress: Progress
 ) {
   const original = await readOriginal(state.dirs!, photo)
-  const blob = await exportVideo(photo, original, settings, share => {
-    progress.label = `Exporting (video ${Math.round(share * 100)} %)`
-    render(state)
-  })
-  progress.label = 'Exporting'
-  return { blob, fits: true }
+  const signal = progress.cancel.signal
+  try {
+    const blob = await exportVideo(photo, original, settings, signal, share => {
+      progress.label = `Exporting (video ${Math.round(share * 100)} %)`
+      render(state)
+    })
+    return { blob, fits: true }
+  } finally {
+    progress.label = 'Exporting'
+  }
 }
 
 // Deletes exactly the files the album's last export wrote when it went
@@ -290,7 +305,7 @@ function report(
   const done = progress.done - errors.length
   const files = `${done} ${done === 1 ? 'file' : 'files'}`
   const parts = targets.length ? [`Exported ${files}${where(targets)}.`] : []
-  if (progress.cancelled) parts.unshift('Export cancelled.')
+  if (progress.cancel.signal.aborted) parts.unshift('Export cancelled.')
   if (over) parts.push(`${over} could not get under the size limit.`)
   if (errors.length) {
     parts.push(`${errors.length} failed: ${[...new Set(errors)].join('; ')}`)

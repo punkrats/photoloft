@@ -10,14 +10,22 @@ export type VideoSettings = {
   angle: number
   crop: { x: number, y: number, w: number, h: number }
   shortSide: 0 | 720 | 1080
-  crf: number
+  rate: Rate
   creationTime: string | null
   stripGps: boolean
   meta: Meta
   trim: Trim | null
 }
 
-type Choices = Pick<ExportSettings, 'videoSide' | 'stripGps'>
+// x264's rate control: a constant quality in one pass, or a bitrate in
+// one or two passes.
+type Rate = { crf: number } | { kbps: number, passes: 1 | 2 }
+
+type Choices = Pick<
+  ExportSettings,
+  'videoSide' | 'stripGps' | 'videoEncoding' | 'videoCrf' | 'videoBitrate'
+  | 'videoTwoPass'
+>
 
 const POLL_MS = 400
 
@@ -46,12 +54,19 @@ export function videoSettings(photo: Photo, choices: Choices): VideoSettings {
       h: Math.min(1 - y, fraction(crop.h / box.h))
     },
     shortSide: choices.videoSide,
-    crf: 20,
+    rate: rateOf(choices),
     creationTime: photo.takenAt ? new Date(photo.takenAt).toISOString() : null,
     stripGps: choices.stripGps,
     meta: photo.meta,
     trim: photo.video?.trim ?? null
   }
+}
+
+function rateOf(choices: Choices): Rate {
+  if (choices.videoEncoding === 'quality') return { crf: choices.videoCrf }
+
+  const kbps = Math.round(choices.videoBitrate * 1000)
+  return { kbps, passes: choices.videoTwoPass ? 2 : 1 }
 }
 
 // HTTP header values only carry Latin-1, so everything outside ASCII
@@ -63,9 +78,11 @@ export function settingsHeader(settings: VideoSettings) {
 }
 
 // Uploads the original to the local server, which runs ffmpeg with the
-// colour table and settings, and returns the exported MP4.
+// colour table and settings, and returns the exported MP4. An abort
+// rejects the request under way or the next one, and has the server
+// stop ffmpeg and drop the job.
 export async function exportVideo(
-  photo: Photo, original: Blob, choices: Choices,
+  photo: Photo, original: Blob, choices: Choices, signal: AbortSignal,
   onProgress: (share: number) => void
 ) {
   const token = await serverToken()
@@ -77,12 +94,33 @@ export async function exportVideo(
     'X-Photoloft-Lut-Length': String(lut.length)
   }
   const body = new Blob([lut, original])
-  const started = await fetch('/api/videos', { method: 'POST', headers, body })
+  const init = { method: 'POST', headers, body, signal }
+  const started = await fetch('/api/videos', init)
   if (!started.ok) throw new Error(await started.text())
 
-  const { job } = await started.json()
+  const job = `/api/videos/${(await started.json()).job}`
+  try {
+    return await result(job, headers, signal, onProgress)
+  } catch (error) {
+    if (signal.aborted) {
+      void fetch(job, { method: 'DELETE', headers }).catch(() => {})
+    }
+    throw error
+  }
+}
+
+// Waits for the job at the address `job` to end and fetches the video
+// it made.
+async function result(
+  job: string, headers: HeadersInit, signal: AbortSignal,
+  onProgress: (share: number) => void
+) {
   for (;;) {
-    const status = await (await fetch(`/api/videos/${job}`, { headers })).json()
+    const response = await fetch(job, { headers, signal })
+    if (!response.ok) {
+      throw new Error('The Photoloft service lost the video export')
+    }
+    const status = await response.json()
     if (status.state === 'failed') throw new Error(status.error)
     if (status.state === 'done') break
 
@@ -90,9 +128,9 @@ export async function exportVideo(
     await new Promise(resolve => setTimeout(resolve, POLL_MS))
   }
 
-  const result = await fetch(`/api/videos/${job}/result`, { headers })
-  if (!result.ok) throw new Error('The exported video could not be fetched')
-  return result.blob()
+  const video = await fetch(`${job}/result`, { headers, signal })
+  if (!video.ok) throw new Error('The exported video could not be fetched')
+  return video.blob()
 }
 
 async function serverToken() {

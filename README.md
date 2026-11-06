@@ -127,7 +127,11 @@ unless an album has a folder of its own.
 - Videos (MP4, MOV) import, play (Space, K) and take the same colour
   and crop settings as photos. Album exports include them at 720p,
   1080p or original size, made by ffmpeg through the Photoloft service
-  with a colour table computed from the preview's maths.
+  with a colour table computed from the preview's maths. Video encoding
+  takes a constant quality (CRF 14 to 32, 20 by default) in one pass,
+  or a bitrate in Mbps, in one pass or two. Cancel in the progress bar
+  stops ffmpeg at once and keeps nothing of the clip it was on. The
+  Export buttons are off while an import, export or Auto runs.
 - An Olympus clip's date comes from the camera's clock text, unless
   another app has changed the clip's own date since. Clips imported
   before Photoloft read that text get the camera's time once, when the
