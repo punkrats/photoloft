@@ -2,6 +2,9 @@ import {
   applyBookkeeping, commit, redoChange, scheduleSave, undoChange
 } from './commit'
 import {
+  importDriveFolder, importPicked, openDrive, pickFile, selectAllFiles
+} from './drives'
+import {
   autoCurrent, autoSelection, autoWhiteBalanceCurrent, closeEditor,
   copySettings, dragTrim, flip, openPhoto, pasteSettings, resetColour,
   resetCrop, resetSlider, resetTrim, rotate, seek, setAspect, setSlider,
@@ -21,8 +24,8 @@ import { ensureMap, pickPlace, searchPlace, showCameraLocation } from './map'
 import { render } from './render'
 import type { Aspect, SliderKey } from './schema'
 import {
-  currentAlbum, endCoalescing, infoForm, selectedIds, showToast, targets,
-  viewIds, type AlbumPick, type AppState, type InfoField
+  clickSelection, currentAlbum, endCoalescing, infoForm, selectedIds,
+  showToast, targets, viewIds, type AlbumPick, type AppState, type InfoField
 } from './state'
 import {
   chooseExportFolder, chooseImportFolder, chooseLibrary, deletePhotoFiles,
@@ -168,20 +171,9 @@ async function chooseFormFolder(state: AppState) {
 // ─── Selection ───────────────────────────────────────────────────────
 
 function select(state: AppState, id: string, event: MouseEvent) {
+  const { selection, anchor } = state
   const ids = viewIds(state)
-  const additive = event.ctrlKey || event.metaKey
-
-  if (event.shiftKey && state.anchor && ids.includes(state.anchor)) {
-    const ends = [ids.indexOf(state.anchor), ids.indexOf(id)]
-    const [a, b] = ends.sort((x, y) => x - y)
-    const range = ids.slice(a, b + 1)
-    state.selection = new Set(additive ? [...state.selection, ...range] : range)
-  } else if (additive) {
-    toggle(state, id)
-  } else {
-    state.selection = new Set([id])
-    state.anchor = id
-  }
+  Object.assign(state, clickSelection(ids, selection, anchor, id, event))
   state.current = id
 }
 
@@ -410,6 +402,7 @@ export const clicks: Record<string, Handler> = {
     state.view = kind === 'album'
       ? { kind, id: data.id! }
       : { kind } as AppState['view']
+    state.browser = null
     state.selection = new Set()
     state.anchor = null
     state.grid.scroll = 0
@@ -417,6 +410,22 @@ export const clicks: Record<string, Handler> = {
     const grid = state.root.querySelector('[data-grid]')
     if (grid) grid.scrollTop = 0
   },
+
+  drive: (state, data) => void openDrive(state, data.name!, []),
+  'drive-folder': (state, data) => {
+    const view = state.view
+    const path = data.path ? data.path.split('/') : []
+    if (view.kind === 'drive') void openDrive(state, view.id, path)
+  },
+  'drive-pick': (state, data, event) => {
+    pickFile(state, data.path!, event as MouseEvent)
+  },
+  'drive-select-all': state => selectAllFiles(state),
+  'drive-clear': state => {
+    if (state.browser) state.browser.selection = new Set()
+  },
+  'drive-import': state => importPicked(state),
+  'drive-import-folder': state => importDriveFolder(state),
 
   'new-album': state => {
     const id = newId()

@@ -59,11 +59,42 @@ export function sidebar(state: AppState, lib: Library) {
           ? nothing
           : html`<p class="sidebar-hint">Select photos and press G</p>`}
       </nav>
+      ${drivesSection(state)}
       <nav class="sidebar-nav sidebar-bottom">
         ${viewItem(state, { kind: 'trash' }, 'icon-trash-2', 'Trash',
           counts.trash)}
       </nav>
     </aside>
+  `
+}
+
+// The drives connected, shown while there are any.
+function drivesSection(state: AppState) {
+  const names = state.drives?.names ?? []
+  if (!names.length) return nothing
+
+  return html`
+    <div class="sidebar-section"><span>Drives</span></div>
+    <nav class="sidebar-nav sidebar-drives">
+      ${names.map(name => driveItem(state, name))}
+    </nav>
+  `
+}
+
+function driveItem(state: AppState, name: string) {
+  const view = state.view
+  const active = view.kind === 'drive' && view.id === name
+
+  return html`
+    <button
+      class=${classMap({ 'nav-item': true, active })}
+      data-action="drive"
+      data-name=${name}
+      title=${name}
+    >
+      <i class="icon-hard-drive"></i>
+      <span class="nav-label">${name}</span>
+    </button>
   `
 }
 

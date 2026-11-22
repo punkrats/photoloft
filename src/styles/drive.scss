@@ -1,0 +1,125 @@
+// The drive browser: the path as buttons in the toolbar, and folders,
+// photos and videos as tiles that fill the width.
+
+.drive-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--font-lg);
+  font-weight: 600;
+
+  > i {
+    color: var(--text-faint);
+    font-size: var(--font-md);
+  }
+}
+
+.drive-crumb {
+  overflow: hidden;
+  padding: 2px var(--space-1);
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:last-child,
+  &:hover {
+    color: var(--text);
+  }
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.drive-grid {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  align-content: start;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+  user-select: none;
+}
+
+.drive-note {
+  grid-column: 1 / -1;
+}
+
+.drive-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-1);
+  border: none;
+  border-radius: var(--radius);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-raised);
+  }
+
+  &.selected {
+    outline-color: var(--accent);
+    background: var(--surface-raised);
+  }
+}
+
+.drive-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--stage);
+  color: var(--text-faint);
+  font-size: var(--font-xxl);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+  }
+
+  .drive-folder & {
+    background: none;
+    color: var(--text-muted);
+  }
+
+  .drive-file.held & img {
+    opacity: 0.6;
+  }
+}
+
+.drive-name {
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-held {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--shade);
+  color: var(--accent);
+  font-size: var(--font-lg);
+}

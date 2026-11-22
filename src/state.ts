@@ -96,6 +96,35 @@ export type Progress = {
   cancel: AbortController
 }
 
+// The drives the Photoloft service sees, by name, and the token its
+// requests carry.
+export type Drives = { token: string, names: string[] }
+
+// A photo or video on a drive, by its path from the drive's top folder.
+export type DriveFile = {
+  path: string
+  name: string
+  size: number
+  modified: number
+}
+
+// A folder on a drive: its subfolders and its photos and videos.
+export type Listing = { folders: string[], files: DriveFile[] }
+
+// The drive browser: the folder shown, as the parts of its path, what
+// it holds once read, the files selected by path with the anchor of a
+// Shift range, and the paths of the files the library holds as of the
+// library `checked`.
+export type DriveBrowser = {
+  path: string[]
+  listing: Listing | null
+  error: string | null
+  selection: Set<string>
+  anchor: string | null
+  held: Set<string>
+  checked: Library | null
+}
+
 export type Point = { x: number, y: number }
 
 export type CropDrag = {
@@ -152,6 +181,9 @@ export type AppState = {
   before: boolean
   zoom: boolean
 
+  drives: Drives | null
+  browser: DriveBrowser | null
+
   dialog: Dialog | null
   renaming: { kind: 'album' | 'photo', id: string } | null
   progress: Progress | null
@@ -201,6 +233,8 @@ export function initialState(root: HTMLElement): AppState {
     mode: 'grid',
     before: false,
     zoom: false,
+    drives: null,
+    browser: null,
     dialog: null,
     renaming: null,
     progress: null,
@@ -272,6 +306,31 @@ export function viewIds(state: AppState) {
 // albums view shows a photo once per album holding it.
 export function selectedIds(state: AppState) {
   return [...new Set(viewIds(state))].filter(id => state.selection.has(id))
+}
+
+// The selection after a click on `id` among `ids`: Shift takes the
+// range from the anchor, Ctrl adds it or toggles the one, a plain click
+// selects only it.
+export function clickSelection(
+  ids: string[], selection: Set<string>, anchor: string | null, id: string,
+  event: MouseEvent
+) {
+  const additive = event.ctrlKey || event.metaKey
+  if (event.shiftKey && anchor && ids.includes(anchor)) {
+    const ends = [ids.indexOf(anchor), ids.indexOf(id)]
+    const [a, b] = ends.sort((x, y) => x - y)
+    const range = ids.slice(a, b + 1)
+    return {
+      selection: new Set(additive ? [...selection, ...range] : range),
+      anchor
+    }
+  }
+  if (!additive) return { selection: new Set([id]), anchor: id }
+
+  const next = new Set(selection)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return { selection: next, anchor: id }
 }
 
 // The photos an action applies to: the one shown in the editor, else

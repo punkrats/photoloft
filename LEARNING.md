@@ -111,6 +111,25 @@
 - A page that aborts an upload closes the connection: the server's
   read ends early, and answering then raises BrokenPipeError, which
   `socketserver` prints as a traceback. Send no answer.
+- The same goes for downloads: images a page drops, as when it leaves
+  a folder of thumbnails, reset their connections. ConnectionError is
+  a subclass of OSError, so catch it first.
+- `BaseHTTPRequestHandler` serves every request of a keep-alive
+  connection with one instance; a flag set on `self` carries over to
+  the next request unless reset.
+- ffmpeg 9 turns a JPEG upright by its EXIF orientation when decoding.
+  `scale=W:H:force_original_aspect_ratio=decrease` also enlarges small
+  inputs; `scale='min(W,iw)':'min(H,ih)':...` stops that.
+- Cameras keep a 160 x 120 JPEG in EXIF IFD1, about 20 KB into the file
+  (an Olympus card: offset 20160, 6.9 KB). ffmpeg needs 0.4 s for a
+  7.7 MB photo on an SD card, mostly reading it; the stored thumbnail
+  comes back at once. It carries no orientation of its own; an APP1
+  segment with just the photo's orientation tag makes the browser
+  show it upright.
+- An `<img>` sends no headers of its own, so an image from a
+  token-checked API carries the token in its address. Chromium opens
+  at most 6 connections per host, which caps the thumbnails drawn at
+  once.
 
 ## Testing
 
@@ -206,6 +225,8 @@
   fields by name.
 - Vitest 3 pulled a vulnerable tinypool; Vitest 4.1.12 works with
   Vite 6 on Node 22.11 (Vite 7 needs Node 22.12+).
+- Playwright's `webServer.env` adds to `process.env`, so the server
+  still finds PATH and HOME.
 - `omarchy-webapp-install` refuses anything other than http(s) URLs.
 - `omarchy-webapp-remove <name>` deletes the launcher and its icons,
   succeeds even when there is none, and sends a notification unless
@@ -216,6 +237,10 @@
   systemctl then cannot reach the user manager.
 
 ## Packaging
+
+- Omarchy runs udiskie, which mounts removable drives at
+  `/run/media/<user>/<label or UUID>` and removes the folder when the
+  drive goes.
 
 - A user unit in `~/.config/systemd/user` wins over one of the same name
   in `/usr/lib/systemd/user`. Pacman's

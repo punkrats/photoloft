@@ -9,8 +9,15 @@
 # checks plus a per-start token), never reads paths from requests,
 # builds every ffmpeg filter and cut from validated numbers, and hands
 # info texts to ffmpeg as single cleaned arguments.
+#
+# The drive API lists the removable drives mounted under the media
+# folder and reads their photos and videos for import. It only reads,
+# answers the same checks, and resolves every path inside its drive,
+# past no hidden entry.
 
+import collections
 import functools
+import getpass
 import http.server
 import json
 import math
@@ -76,6 +83,29 @@ INFO_TAGS = {
 ISO_6709 = re.compile(r'^([+-]\d{2}(?:\.\d+)?)([+-]\d{3}(?:\.\d+)?)')
 CHUNK_TABLES = {b'stco': '>I', b'co64': '>Q'}
 TRACK_BOXES = {b'trak', b'mdia', b'minf', b'stbl'}
+
+# What the page imports: JPEGs and the videos of src/library.ts
+# VIDEO_EXTS. Other programs' thumbnail and cache folders stay out of a
+# folder import, as in src/storage.ts, and so do the folders systems
+# keep on drives.
+MEDIA_EXTS = {'.jpg', '.jpeg', '.mp4', '.mov', '.m4v'}
+CACHE_FOLDER = re.compile(
+    r'^(thumbs|thumbnails?|previews|cache|@eadir)$|\.lrdata$', re.I)
+SYSTEM_FOLDERS = {'system volume information', '$recycle.bin'}
+RANGE = re.compile(r'^bytes=(\d*)-(\d*)$')
+THUMB_PATH = '/api/drive/thumb'
+
+# Thumbnails of drive files: at most this many pixels on the long edge
+# when ffmpeg draws them, and how many are kept in memory.
+THUMB_SIZE = 360
+THUMBS_KEPT = 2000
+
+# A camera's EXIF thumbnail lies in the APP1 segment, at most 64 KB
+# into the file.
+EXIF_READ = 128 * 1024
+ORIENTATION = 0x0112
+THUMB_OFFSET = 0x0201
+THUMB_LENGTH = 0x0202
 
 
 # ─── Validation ──────────────────────────────────────────────────────
@@ -616,9 +646,240 @@ class Jobs:
                 self.finish(job['id'])
 
 
+# ─── Drives ──────────────────────────────────────────────────────────
+
+def default_media():
+    return os.environ.get('PHOTOLOFT_MEDIA_ROOT') or \
+        f'/run/media/{getpass.getuser()}'
+
+
+def drives(media):
+    try:
+        entries = list(os.scandir(media))
+    except OSError:
+        return []
+    return sorted(e.name for e in entries
+                  if e.is_dir(follow_symlinks=False) and not hidden(e.name))
+
+
+def hidden(name):
+    return name.startswith('.') or name.lower() in SYSTEM_FOLDERS
+
+
+# The real path of `path` (parts split by /) on the drive, or None when
+# the drive is no folder of the media folder, or the path passes a
+# hidden entry, leads off the drive or to nothing.
+def drive_path(media, drive, path):
+    root = os.path.realpath(media)
+    if not drive or hidden(drive) or '/' in drive:
+        return None
+    base = os.path.realpath(os.path.join(root, drive))
+    if os.path.dirname(base) != root or not os.path.isdir(base):
+        return None
+
+    parts = [part for part in path.split('/') if part]
+    if any(hidden(part) for part in parts):
+        return None
+    target = os.path.realpath(os.path.join(base, *parts))
+    inside = target == base or target.startswith(base + os.sep)
+    return target if inside and os.path.exists(target) else None
+
+
+def is_media(name):
+    return os.path.splitext(name)[1].lower() in MEDIA_EXTS
+
+
+def media_file(entry, path):
+    stat = entry.stat(follow_symlinks=False)
+    return {
+        'path': path,
+        'name': entry.name,
+        'size': stat.st_size,
+        'modified': int(stat.st_mtime * 1000)
+    }
+
+
+# The folder's subfolders and photos and videos; `path` is where the
+# folder lies on its drive.
+def listing(folder, path):
+    folders, files = [], []
+    for entry in os.scandir(folder):
+        if hidden(entry.name):
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            folders.append(entry.name)
+        elif entry.is_file(follow_symlinks=False) and is_media(entry.name):
+            files.append(media_file(entry, join_path(path, entry.name)))
+    files.sort(key=lambda f: f['name'])
+    return {'folders': sorted(folders), 'files': files}
+
+
+# The photos and videos in the folder and all its subfolders, and how
+# many other files there are.
+def walk(folder, path):
+    files, skipped = [], 0
+    for entry in sorted(os.scandir(folder), key=lambda e: e.name):
+        if hidden(entry.name):
+            continue
+        inner = join_path(path, entry.name)
+        if entry.is_dir(follow_symlinks=False):
+            if CACHE_FOLDER.search(entry.name):
+                continue
+            found = walk(entry.path, inner)
+            files += found['files']
+            skipped += found['skipped']
+        elif entry.is_file(follow_symlinks=False):
+            if is_media(entry.name):
+                files.append(media_file(entry, inner))
+            else:
+                skipped += 1
+    return {'files': files, 'skipped': skipped}
+
+
+def join_path(path, name):
+    return f'{path}/{name}' if path else name
+
+
+# The part of a file of `size` bytes a Range header asks for, as start
+# and end, or None for the whole file. A range that starts past the end
+# raises ValueError.
+def byte_range(header, size):
+    found = RANGE.match(header or '')
+    if not found or found.groups() == ('', ''):
+        return None
+
+    first, last = found.groups()
+    if first:
+        start = int(first)
+        end = min(size, int(last) + 1) if last else size
+    else:
+        start, end = max(0, size - int(last)), size
+    if start >= end:
+        raise ValueError('range outside the file')
+    return start, end
+
+
+# The thumbnail a camera stored in the photo's EXIF, carrying the
+# photo's orientation so the browser shows it upright, or None.
+def exif_thumbnail(path):
+    with open(path, 'rb') as source:
+        data = source.read(EXIF_READ)
+    tiff = exif_tiff(data)
+    if tiff is None:
+        return None
+
+    try:
+        order = '<' if tiff[:2] == b'II' else '>'
+        first = ifd_entries(tiff, order, struct.unpack(order + 'I',
+                                                       tiff[4:8])[0])
+        second = ifd_entries(tiff, order, first.get('next', 0))
+    except struct.error:
+        return None
+    start = second.get(THUMB_OFFSET)
+    length = second.get(THUMB_LENGTH)
+    thumb = tiff[start:start + length] if start and length else b''
+    if not thumb.startswith(b'\xff\xd8'):
+        return None
+
+    orientation = first.get(ORIENTATION, 1)
+    if not 2 <= orientation <= 8:
+        return thumb
+    return thumb[:2] + orientation_segment(orientation) + thumb[2:]
+
+
+# The TIFF data of the JPEG's EXIF segment, or None.
+def exif_tiff(data):
+    if data[:2] != b'\xff\xd8':
+        return None
+    at = 2
+    while at + 4 <= len(data) and data[at] == 0xff:
+        marker = data[at + 1]
+        length = struct.unpack('>H', data[at + 2:at + 4])[0]
+        segment = data[at + 4:at + 2 + length]
+        if marker == 0xe1 and segment[:6] == b'Exif\x00\x00':
+            return segment[6:]
+        if marker == 0xda:
+            return None
+        at += 2 + length
+    return None
+
+
+# The first value of each short or long entry of the IFD at `offset`,
+# by tag, and the offset of the next IFD under 'next'.
+def ifd_entries(tiff, order, offset):
+    if not offset:
+        return {}
+    count = struct.unpack(order + 'H', tiff[offset:offset + 2])[0]
+    entries = {}
+    for i in range(count):
+        at = offset + 2 + i * 12
+        tag, kind = struct.unpack(order + 'HH', tiff[at:at + 4])
+        if kind == 3:
+            entries[tag] = struct.unpack(order + 'H', tiff[at + 8:at + 10])[0]
+        elif kind == 4:
+            entries[tag] = struct.unpack(order + 'I', tiff[at + 8:at + 12])[0]
+    end = offset + 2 + count * 12
+    entries['next'] = struct.unpack(order + 'I', tiff[end:end + 4])[0]
+    return entries
+
+
+# An APP1 segment holding nothing but the orientation.
+def orientation_segment(orientation):
+    tiff = b'MM\x00\x2a' + struct.pack('>IHHHIHHI', 8, 1, ORIENTATION, 3, 1,
+                                        orientation, 0, 0)
+    payload = b'Exif\x00\x00' + tiff
+    return b'\xff\xe1' + struct.pack('>H', len(payload) + 2) + payload
+
+
+# A small upright JPEG of the photo or the video's first frame: the
+# camera's EXIF thumbnail when there is one, else one ffmpeg draws.
+# None when neither works.
+def thumbnail(path):
+    if os.path.splitext(path)[1].lower() in ('.jpg', '.jpeg'):
+        stored = exif_thumbnail(path)
+        if stored:
+            return stored
+
+    side = THUMB_SIZE
+    scale = f"scale='min({side},iw)':'min({side},ih)':" \
+        'force_original_aspect_ratio=decrease'
+    args = ['ffmpeg', '-v', 'error', '-i', path, '-frames:v', '1',
+            '-vf', scale, '-q:v', '5', '-f', 'image2pipe', '-c:v', 'mjpeg',
+            'pipe:1']
+    try:
+        done = subprocess.run(args, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return None
+    return done.stdout if done.returncode == 0 and done.stdout else None
+
+
+# Thumbnails drawn so far, by path, size and time, the oldest dropped
+# first beyond THUMBS_KEPT.
+class Thumbs:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.kept = collections.OrderedDict()
+
+    def get(self, path):
+        stat = os.stat(path)
+        key = (path, stat.st_size, stat.st_mtime_ns)
+        with self.lock:
+            if key in self.kept:
+                return self.kept[key]
+        data = thumbnail(path)
+        if data:
+            with self.lock:
+                self.kept[key] = data
+                while len(self.kept) > THUMBS_KEPT:
+                    self.kept.popitem(last=False)
+        return data
+
+
 # ─── HTTP ────────────────────────────────────────────────────────────
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    answered = False
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
@@ -626,15 +887,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    # A thumbnail goes into an image, which sends no headers of its
+    # own, so it may carry the token in its address.
     def do_GET(self):
-        path = urllib.parse.urlsplit(self.path).path
+        url = urllib.parse.urlsplit(self.path)
+        path = url.path
+        query = urllib.parse.parse_qs(url.query)
         if not path.startswith('/api/'):
             return super().do_GET()
-        if not self.permitted(token=path != '/api/token'):
+        sent = query.get('token', [''])[0] if path == THUMB_PATH else None
+        if not self.permitted(token=path != '/api/token', sent=sent):
             return self.reply(403, {'error': 'forbidden'})
 
         if path == '/api/token':
             return self.reply(200, {'token': self.server.token})
+        if path == '/api/drives':
+            return self.reply(200, {'drives': drives(self.server.media)})
+        if path.startswith('/api/drive/'):
+            return self.drive_request(path, query)
 
         parts = path.split('/')
         job = self.server.jobs.get(parts[3]) if len(parts) > 3 else None
@@ -692,15 +962,92 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.reply(404, {'error': 'not found'})
         return self.reply(200, {})
 
-    def permitted(self, token):
+    def permitted(self, token, sent=None):
         host = self.headers.get('Host')
         origin = self.headers.get('Origin')
         if not allowed(host, origin, self.server.server_address[1]):
             return False
         if not token:
             return True
-        sent = self.headers.get('X-Photoloft-Token', '')
+        sent = sent if sent is not None else \
+            self.headers.get('X-Photoloft-Token', '')
         return secrets.compare_digest(sent, self.server.token)
+
+    # Files and thumbnails come only of photos and videos, judged by the
+    # name the path resolves to. A page that stops reading, as one
+    # leaving a folder of thumbnails does, gets nothing more; a drive
+    # pulled out half way through a file ends the connection, the answer
+    # having started.
+    def drive_request(self, path, query):
+        self.answered = False
+        drive = query.get('drive', [''])[0]
+        inner = query.get('path', [''])[0]
+        found = drive_path(self.server.media, drive, inner)
+        kind = path[len('/api/drive/'):]
+        folder = found and os.path.isdir(found)
+        media = found and not folder and is_media(found)
+        try:
+            if kind == 'list' and folder:
+                return self.reply(200, listing(found, inner.strip('/')))
+            if kind == 'walk' and folder:
+                return self.reply(200, walk(found, inner.strip('/')))
+            if kind == 'file' and media:
+                return self.send_file(found)
+            if kind == 'thumb' and media:
+                return self.send_thumb(found)
+        except ConnectionError:
+            self.close_connection = True
+            return None
+        except OSError:
+            if self.answered:
+                self.close_connection = True
+                return None
+        return self.reply(404, {'error': 'not found'})
+
+    def send_response(self, *args):
+        self.answered = True
+        super().send_response(*args)
+
+    def send_file(self, path):
+        size = os.path.getsize(path)
+        try:
+            part = byte_range(self.headers.get('Range'), size)
+        except ValueError:
+            self.send_response(416)
+            self.send_header('Content-Range', f'bytes */{size}')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return None
+
+        start, end = part or (0, size)
+        with open(path, 'rb') as source:
+            source.seek(start)
+            self.send_response(206 if part else 200)
+            if part:
+                self.send_header('Content-Range',
+                                 f'bytes {start}-{end - 1}/{size}')
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(end - start))
+            self.end_headers()
+            left = end - start
+            while left > 0:
+                chunk = source.read(min(CHUNK, left))
+                if not chunk:
+                    raise OSError('the file ended early')
+                self.wfile.write(chunk)
+                left -= len(chunk)
+        return None
+
+    def send_thumb(self, path):
+        data = self.server.thumbs.get(path)
+        if not data:
+            return self.reply(404, {'error': 'no thumbnail'})
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.send_header('Content-Length', str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+        return None
 
     def receive(self, path, remaining):
         with open(path, 'wb') as out:
@@ -738,11 +1085,13 @@ def status(job):
     }
 
 
-def make_server(port):
+def make_server(port, media=None):
     handler = functools.partial(Handler, directory=str(ROOT))
     server = http.server.ThreadingHTTPServer(('127.0.0.1', port), handler)
     server.token = secrets.token_urlsafe(24)
     server.jobs = Jobs()
+    server.media = media or default_media()
+    server.thumbs = Thumbs()
     return server
 
 

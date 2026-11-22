@@ -3,6 +3,7 @@ import type { ExportSettings, Photo, Trim } from './library'
 import { cubeLut } from './lut'
 import type { Meta } from './meta'
 import { colourOf } from './schema'
+import { serviceToken } from './service'
 
 export type VideoSettings = {
   rotate: number
@@ -85,7 +86,11 @@ export async function exportVideo(
   photo: Photo, original: Blob, choices: Choices, signal: AbortSignal,
   onProgress: (share: number) => void
 ) {
-  const token = await serverToken()
+  const token = await serviceToken()
+  if (!token) {
+    throw new Error('Video export needs the Photoloft service ' +
+      '(open Photoloft from the app launcher)')
+  }
   const lut = cubeLut(colourOf(photo.edit))
   const settings = videoSettings(photo, choices)
   const headers = {
@@ -131,15 +136,6 @@ async function result(
   const video = await fetch(`${job}/result`, { headers, signal })
   if (!video.ok) throw new Error('The exported video could not be fetched')
   return video.blob()
-}
-
-async function serverToken() {
-  const response = await fetch('/api/token').catch(() => null)
-  if (!response?.ok) {
-    throw new Error('Video export needs the Photoloft service ' +
-      '(open Photoloft from the app launcher)')
-  }
-  return (await response.json()).token as string
 }
 
 function round(v: number) {

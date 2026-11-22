@@ -8,7 +8,9 @@ import {
 import { readMoov, videoTaken } from './mp4'
 import { render } from './render'
 import { NEUTRAL_EDIT } from './schema'
-import { currentAlbum, showToast, type AppState } from './state'
+import {
+  currentAlbum, showToast, type AppState, type Progress
+} from './state'
 import {
   collectFiles, readOriginal, videoExt, writeOriginal, writeThumb, type Dirs
 } from './storage'
@@ -16,11 +18,26 @@ import { showThumb, thumbFrom } from './thumbs'
 
 const PARALLEL = 3
 
+// A file to import: one dropped or picked, or one on a drive the
+// Photoloft service reads. `read` gives the bytes from `start` to
+// `end`, `file` the whole file.
+export type Source = {
+  name: string
+  size: number
+  read: (start: number, end: number) => Promise<Uint8Array<ArrayBuffer>>
+  file: () => Promise<File>
+}
+
+// What an import found: the files to import and how many others it
+// passed over.
+export type Found = { sources: Source[], skipped: number }
+
 type Outcome = {
   photo?: Photo
   known?: string
   invalid?: boolean
   unplayable?: boolean
+  unreadable?: boolean
 }
 
 // What one import keeps: the ids it took so far, the library's items
@@ -36,13 +53,8 @@ const THUMB_SOURCE = 1024
 const VIDEO_EDGE = 1024 * 1024
 const SAMPLE_EDGE = 64 * 1024
 
-// Copies JPEGs and videos into the library. A photo counts as known
-// when a file with exactly the same content was imported before, under
-// any name, a video when its size and first and last megabyte match;
-// known ones are not copied again but still join the open album and
-// come back from the trash. A file of the same size as a library item
-// is checked first by its first and last 64 KB, so known files are
-// skipped without reading them whole.
+// Imports dropped or picked files and folders with all their
+// subfolders.
 export async function importEntries(
   state: AppState, entries: (File | FileSystemHandle)[]
 ) {
@@ -54,32 +66,61 @@ export async function importEntries(
     return
   }
 
+  const root = state.dirs.root
+  await importFound(state, async progress => {
+    const { files, skipped } = await collectFiles(entries, root, progress)
+    return { sources: files.map(fileSource), skipped }
+  })
+}
+
+// Copies JPEGs and videos into the library, from what `find` finds. A
+// photo counts as known when a file with exactly the same content was
+// imported before, under any name, a video when its size and first and
+// last megabyte match; known ones are not copied again but still join
+// the open album and come back from the trash. A file of the same size
+// as a library item is checked first by its first and last 64 KB, so
+// known files are skipped without reading them whole.
+export async function importFound(
+  state: AppState, find: (progress: Progress) => Promise<Found>
+) {
+  if (!state.library || !state.dirs || state.progress) return
+
   const progress = {
     label: 'Looking for photos', done: 0, total: 0,
     cancel: new AbortController()
   }
   state.progress = progress
   const ticker = window.setInterval(() => render(state), 250)
-  const found = await collectFiles(entries, state.dirs.root, progress)
-    .finally(() => clearInterval(ticker))
+  let found: Found
+  try {
+    found = await find(progress)
+  } catch (error) {
+    state.progress = null
+    showToast(state, `Could not read the folder: ${String(error)}`)
+    render(state)
+    return
+  } finally {
+    clearInterval(ticker)
+  }
 
-  const { files, skipped } = found
+  const { sources, skipped } = found
   const cancelled = progress.cancel.signal.aborted
-  if (cancelled || files.length === 0) {
+  if (cancelled || sources.length === 0) {
     state.progress = null
     if (!cancelled) showToast(state, 'No photos or videos found.')
     render(state)
     return
   }
 
-  Object.assign(progress, { label: 'Importing', done: 0, total: files.length })
+  const total = sources.length
+  Object.assign(progress, { label: 'Importing', done: 0, total })
   render(state)
 
   const outcomes: Outcome[] = []
   const run = newRun(state.library)
-  await pool(files, PARALLEL, async file => {
+  await pool(sources, PARALLEL, async source => {
     if (progress.cancel.signal.aborted) return
-    outcomes.push(await importFile(state, file, run))
+    outcomes.push(await importSource(state, source, run))
     progress.done++
     render(state)
   })
@@ -87,13 +128,43 @@ export async function importEntries(
   state.progress = null
   const added = outcomes.flatMap(o => (o.photo ? [o.photo] : []))
   const known = outcomes.flatMap(o => (o.known ? [o.known] : []))
-  const invalid = skipped + outcomes.filter(o => o.invalid).length
-  const unplayable = outcomes.filter(o => o.unplayable).length
+  const count = (key: keyof Outcome) => outcomes.filter(o => o[key]).length
   commit(state, withImported(state, added, known))
 
-  const counts = { added: added.length, known: known.length }
-  showToast(state, summary({ ...counts, invalid, unplayable }))
+  showToast(state, summary({
+    added: added.length,
+    known: known.length,
+    invalid: skipped + count('invalid'),
+    unplayable: count('unplayable'),
+    unreadable: count('unreadable')
+  }))
   render(state)
+}
+
+// Which of the sources the library holds, as far as their size and
+// ends tell (`quickMatch`).
+export async function heldSources(state: AppState, sources: Source[]) {
+  const dirs = state.dirs!
+  const lib = state.library!
+  const run = newRun(lib)
+  const held: boolean[] = []
+  await pool([...sources.keys()], PARALLEL, async i => {
+    const match = await quickMatch(dirs, lib, sources[i], run)
+      .catch(() => null)
+    held[i] = match !== null
+  })
+  return held
+}
+
+export function fileSource(file: File): Source {
+  return {
+    name: file.name,
+    size: file.size,
+    read: async (start, end) => {
+      return new Uint8Array(await file.slice(start, end).arrayBuffer())
+    },
+    file: async () => file
+  }
 }
 
 function newRun(lib: Library): Run {
@@ -104,13 +175,22 @@ function newRun(lib: Library): Run {
   return { seen: new Set(), sizes, samples: new Map() }
 }
 
-async function importFile(
-  state: AppState, file: File, run: Run
+// A file that cannot be read, such as one on a drive pulled out, counts
+// apart from one that is no photo or video.
+async function importSource(
+  state: AppState, source: Source, run: Run
 ): Promise<Outcome> {
-  const ext = videoExt(file.name)
+  const ext = videoExt(source.name)
+  let file: File
   try {
-    const known = await quickMatch(state.dirs!, state.library!, file, run)
+    const known = await quickMatch(state.dirs!, state.library!, source, run)
     if (known) return { known }
+    file = await source.file()
+  } catch {
+    return { unreadable: true }
+  }
+
+  try {
     return ext
       ? await importVideo(state, file, ext, run.seen)
       : await importPhoto(state, file, run.seen)
@@ -123,11 +203,13 @@ async function importFile(
 // first and last 64 KB, or null to check the whole file. A file that
 // differs from an item only in between would count as that item; files
 // from cameras and phones never do.
-async function quickMatch(dirs: Dirs, lib: Library, file: Blob, run: Run) {
-  const ids = run.sizes.get(file.size)
+async function quickMatch(
+  dirs: Dirs, lib: Library, source: Source, run: Run
+) {
+  const ids = run.sizes.get(source.size)
   if (!ids) return null
 
-  const sample = await sampledId(file, SAMPLE_EDGE)
+  const sample = await sampledId(source, SAMPLE_EDGE)
   for (const id of ids) {
     if ((await originalSample(dirs, lib, id, run)) === sample) return id
   }
@@ -139,7 +221,7 @@ function originalSample(dirs: Dirs, lib: Library, id: string, run: Run) {
   let sample = run.samples.get(id)
   if (!sample) {
     sample = readOriginal(dirs, lib.photos[id])
-      .then(original => sampledId(original, SAMPLE_EDGE))
+      .then(original => sampledId(fileSource(original), SAMPLE_EDGE))
       .catch(() => '')
     run.samples.set(id, sample)
   }
@@ -164,7 +246,7 @@ async function importPhoto(state: AppState, file: File, seen: Set<string>) {
 async function importVideo(
   state: AppState, file: File, ext: VideoExt, seen: Set<string>
 ) {
-  const id = await sampledId(file, VIDEO_EDGE)
+  const id = await sampledId(fileSource(file), VIDEO_EDGE)
   if (state.library!.photos[id] || seen.has(id)) return { known: id }
   seen.add(id)
 
@@ -227,9 +309,10 @@ type Counts = {
   known: number
   invalid: number
   unplayable: number
+  unreadable: number
 }
 
-function summary({ added, known, invalid, unplayable }: Counts) {
+function summary({ added, known, invalid, unplayable, unreadable }: Counts) {
   const parts = [`Imported ${added} ${added === 1 ? 'photo' : 'photos'}.`]
   if (known) parts.push(`${known} already imported.`)
   if (invalid) parts.push(`${invalid} skipped (not a JPEG or a video).`)
@@ -237,6 +320,7 @@ function summary({ added, known, invalid, unplayable }: Counts) {
     const videos = unplayable === 1 ? '1 video' : `${unplayable} videos`
     parts.push(`${videos} could not be played in this browser.`)
   }
+  if (unreadable) parts.push(`${unreadable} could not be read.`)
   if (added) parts.push('The originals stay where they were.')
   return parts.join(' ')
 }
@@ -244,11 +328,12 @@ function summary({ added, known, invalid, unplayable }: Counts) {
 // The hash of the size and the first and last `edge` bytes. Videos can
 // be far too large to hash whole; with a megabyte at each end this
 // identifies them well enough.
-async function sampledId(file: Blob, edge: number) {
+async function sampledId(source: Source, edge: number) {
+  const { size } = source
   const parts = [
-    new TextEncoder().encode(String(file.size)),
-    new Uint8Array(await file.slice(0, edge).arrayBuffer()),
-    new Uint8Array(await file.slice(-edge).arrayBuffer())
+    new TextEncoder().encode(String(size)),
+    await source.read(0, Math.min(edge, size)),
+    await source.read(Math.max(0, size - edge), size)
   ]
   const joined = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
   let at = 0

@@ -95,6 +95,8 @@ export type Library = {
   metaDefaults: MetaDefaults
 }
 
+// What the main area shows: a part of the library, or a drive, whose
+// files are no library photos.
 export type View =
   | { kind: 'all' }
   | { kind: 'unsorted' }
@@ -103,6 +105,7 @@ export type View =
   | { kind: 'albums' }
   | { kind: 'trash' }
   | { kind: 'album', id: string }
+  | { kind: 'drive', id: string }
 
 export type Sort = 'date' | 'name' | 'size'
 export type AlbumSort = Sort | 'custom'
@@ -534,6 +537,7 @@ export function viewPhotos(lib: Library, view: View, sort: Sort) {
     return photo && !photo.trashedAt
   }
 
+  if (view.kind === 'drive') return []
   if (view.kind === 'album') {
     const album = lib.albums.find(a => a.id === view.id)
     return album ? albumOrder(lib, album) : []

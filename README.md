@@ -52,6 +52,14 @@ unless an album has a folder of its own.
   folders, files other than JPEGs and videos, and other programs'
   thumbnail and cache folders (`thumbs`, `thumbnails`, `previews`,
   `cache`, `*.lrdata`, `@eaDir`) are left out.
+- A card or USB drive the system mounts under `/run/media/<user>` shows
+  under Drives in the sidebar while it is connected. Clicking it
+  browses its folders; photos and videos show with the camera's
+  thumbnail, and those the library holds carry a tick. Click,
+  Ctrl+click, Shift+click and Ctrl+A pick files; Import brings in the
+  files picked, Import folder the folder shown with all its subfolders,
+  passing over what the library holds. The page reads drives through
+  the Photoloft service and never writes to them.
 - Star keepers with `S` or the star on a thumbnail; the Starred view
   lists them.
 - Add to album (selection bar, editor header, `G`) puts the selection,
@@ -162,8 +170,10 @@ Press `?` in the app for keyboard shortcuts.
 - `npm run test:e2e` builds and runs the browser tests (Playwright,
   system Chromium with software WebGL)
 - `npm run typecheck`
-- `python3 -m unittest scripts/test_serve.py` tests the server and its
-  ffmpeg video export
+- `python3 -m unittest scripts/test_serve.py` tests the server, its
+  ffmpeg video export and its drive reading. The server looks for
+  drives in `/run/media/<user>`; `PHOTOLOFT_MEDIA_ROOT` points it at
+  another folder, as the browser tests do
 - `python3 -m unittest scripts/test_install_launcher.py` runs the
   install script against stand-in commands in a temporary home
 - `python3 -m unittest scripts/test_photoloft_command.py

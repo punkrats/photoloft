@@ -8,7 +8,8 @@ import {
   cellRect, GAP, gridLayout, HEADER, PAD, type Row, type Section
 } from '../grid-layout'
 import {
-  trimRange, VIDEO_EXTS, type Album, type AlbumSort, type Library, type Photo
+  trimRange, VIDEO_EXTS, type Album, type AlbumSort, type Library, type Photo,
+  type View
 } from '../library'
 import { isEdited } from '../schema'
 import {
@@ -36,7 +37,11 @@ const TITLES = {
   trash: 'Trash'
 }
 
+// A drive's files show in the drive browser instead.
 export function library(state: AppState, lib: Library) {
+  const view = state.view
+  if (view.kind === 'drive') return nothing
+
   const ids = viewIds(state)
   const album = currentAlbum(state)
 
@@ -45,7 +50,7 @@ export function library(state: AppState, lib: Library) {
       ${toolbar(state, ids, album)}
       ${selectionBar(state, album)}
       <div class="grid" data-grid>
-        ${ids.length ? grid(state, lib, ids) : empty(state, lib)}
+        ${ids.length ? grid(state, lib, ids) : empty(lib, view.kind)}
       </div>
       <input
         type="file"
@@ -441,7 +446,7 @@ function dropMarker(state: AppState, g: ReturnType<typeof gridLayout>) {
   return html`<div class="drop-marker" style=${styleMap(vars)}></div>`
 }
 
-function empty(state: AppState, lib: Library) {
+function empty(lib: Library, kind: Exclude<View['kind'], 'drive'>) {
   const nothingYet = Object.keys(lib.photos).length === 0
   const text = {
     all: 'No photos yet. Import a folder (subfolders included) or drop ' +
@@ -454,7 +459,7 @@ function empty(state: AppState, lib: Library) {
     trash: 'Trash is empty.',
     album: 'This album is empty. Select photos in All photos and press G, ' +
       'or drag them onto the album in the sidebar.'
-  }[state.view.kind]
+  }[kind]
 
   return html`
     <div class="grid-empty">

@@ -2,6 +2,7 @@ import { html, nothing } from 'lit-html'
 import { styleMap } from 'lit-html/directives/style-map.js'
 import type { AppState } from '../state'
 import { dialog } from './dialogs'
+import { driveBrowser } from './drive'
 import { editor } from './editor'
 import { library } from './library'
 import { panel } from './panel'
@@ -12,11 +13,12 @@ export function app(state: AppState) {
   const lib = state.library
   if (!lib) return welcome(state)
 
+  const drive = state.view.kind === 'drive'
   return html`
     <div class="app" data-mode=${state.mode}>
       ${sidebar(state, lib)}
       <main class="main">
-        ${library(state, lib)}
+        ${drive ? driveBrowser(state) : library(state, lib)}
         ${editor(state, lib)}
       </main>
       ${state.mode === 'edit' || state.mode === 'crop' ? panel(state) : nothing}

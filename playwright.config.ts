@@ -1,9 +1,11 @@
 import { defineConfig } from '@playwright/test'
+import { MEDIA_ROOT } from './e2e/media'
 
 // Runs the built app in system Chromium, served by Photoloft's own
-// server (which also exports videos). WebGL goes through SwiftShader,
-// Chromium's software renderer, so tests never touch the GPU and behave
-// the same on every machine.
+// server, which also exports videos and reads drives, here the folders
+// under MEDIA_ROOT. WebGL goes through SwiftShader, Chromium's software
+// renderer, so tests never touch the GPU and behave the same on every
+// machine.
 export default defineConfig({
   testDir: 'e2e',
   timeout: 90_000,
@@ -24,6 +26,7 @@ export default defineConfig({
   webServer: {
     command: 'python3 scripts/serve.py 4173',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: false
+    reuseExistingServer: false,
+    env: { PHOTOLOFT_MEDIA_ROOT: MEDIA_ROOT }
   }
 })

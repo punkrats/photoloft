@@ -841,5 +841,276 @@ class Api(unittest.TestCase):
         self.assertEqual(self.code(path, headers), 200)
 
 
+# ─── Drives ──────────────────────────────────────────────────────────
+
+# A media folder with one drive, CARD, holding a camera's folders, a
+# hidden folder, a cache folder and a file of another kind.
+def media_folder(test):
+    media = pathlib.Path(tempfile.mkdtemp())
+    test.addCleanup(shutil.rmtree, media, ignore_errors=True)
+    card = media / 'CARD'
+    (card / 'DCIM' / '100TEST').mkdir(parents=True)
+    (card / 'DCIM' / 'thumbs').mkdir()
+    (card / '.Trashes').mkdir()
+    (card / 'System Volume Information').mkdir()
+    shutil.copy(FIXTURES / 'e2e-a.jpg', card / 'DCIM' / '100TEST' / 'P2.JPG')
+    shutil.copy(FIXTURES / 'e2e-b.jpg', card / 'DCIM' / '100TEST' / 'P10.jpg')
+    shutil.copy(FIXTURES / 'clip.mp4', card / 'DCIM' / '100TEST' / 'C1.MOV')
+    shutil.copy(FIXTURES / 'e2e-c.jpg', card / 'DCIM' / 'thumbs' / 'T.jpg')
+    shutil.copy(FIXTURES / 'e2e-d.jpg', card / '.Trashes' / 'D.jpg')
+    (card / 'DCIM' / '100TEST' / 'notes.txt').write_text('mine')
+    (card / 'DCIM' / '100TEST' / '._P2.JPG').write_text('mac')
+    (media / '.hidden').mkdir()
+    return media
+
+
+class Drives(unittest.TestCase):
+    def test_lists_the_folders_mounted_under_the_media_folder(self):
+        media = media_folder(self)
+        (media / 'STICK').mkdir()
+        (media / 'stray.txt').write_text('x')
+        self.assertEqual(serve.drives(media), ['CARD', 'STICK'])
+
+    def test_lists_none_without_a_media_folder(self):
+        self.assertEqual(serve.drives(pathlib.Path('/no/such/media')), [])
+
+
+class DrivePath(unittest.TestCase):
+    def setUp(self):
+        self.media = media_folder(self)
+        self.card = os.path.realpath(self.media / 'CARD')
+
+    def test_finds_a_file_or_folder_on_the_drive(self):
+        found = serve.drive_path(self.media, 'CARD', 'DCIM/100TEST/P2.JPG')
+        self.assertEqual(found, f'{self.card}/DCIM/100TEST/P2.JPG')
+        self.assertEqual(serve.drive_path(self.media, 'CARD', ''), self.card)
+
+    def test_refuses_paths_that_leave_the_drive_or_go_nowhere(self):
+        outside = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside)
+        (self.media / 'CARD' / 'link').symlink_to(outside)
+        (self.media / 'LINK').symlink_to(outside)
+        refused = [
+            ('CARD', '../CARD/DCIM'), ('CARD', 'DCIM/../../CARD'),
+            ('CARD', '.Trashes/D.jpg'), ('CARD', 'link'),
+            ('CARD', 'DCIM/missing.jpg'), ('..', ''), ('.hidden', ''),
+            ('CARD/DCIM', ''), ('LINK', ''), ('', ''), ('NONE', '')
+        ]
+        for drive, path in refused:
+            with self.subTest(drive=drive, path=path):
+                self.assertIsNone(serve.drive_path(self.media, drive, path))
+
+
+class Listing(unittest.TestCase):
+    def test_lists_folders_and_media_files_with_their_paths(self):
+        media = media_folder(self)
+        root = serve.listing(serve.drive_path(media, 'CARD', ''), '')
+        self.assertEqual(root, {'folders': ['DCIM'], 'files': []})
+
+        folder = serve.drive_path(media, 'CARD', 'DCIM/100TEST')
+        found = serve.listing(folder, 'DCIM/100TEST')
+        names = [f['name'] for f in found['files']]
+        self.assertEqual(names, ['C1.MOV', 'P10.jpg', 'P2.JPG'])
+        first = found['files'][0]
+        self.assertEqual(first['path'], 'DCIM/100TEST/C1.MOV')
+        self.assertEqual(first['size'], (FIXTURES / 'clip.mp4').stat().st_size)
+        self.assertGreater(first['modified'], 1_000_000_000_000)
+
+    def test_walks_media_below_a_folder(self):
+        media = media_folder(self)
+        found = serve.walk(serve.drive_path(media, 'CARD', ''), '')
+        paths = [f['path'] for f in found['files']]
+        self.assertEqual(paths, [
+            'DCIM/100TEST/C1.MOV', 'DCIM/100TEST/P10.jpg',
+            'DCIM/100TEST/P2.JPG'
+        ])
+        self.assertEqual(found['skipped'], 1)
+
+        folder = serve.drive_path(media, 'CARD', 'DCIM/100TEST')
+        found = serve.walk(folder, 'DCIM/100TEST')
+        self.assertEqual(found['files'][2]['path'], 'DCIM/100TEST/P2.JPG')
+
+
+class ByteRange(unittest.TestCase):
+    def test_reads_the_ranges_a_page_asks_for(self):
+        self.assertEqual(serve.byte_range('bytes=0-99', 1000), (0, 100))
+        self.assertEqual(serve.byte_range('bytes=900-', 1000), (900, 1000))
+        self.assertEqual(serve.byte_range('bytes=-100', 1000), (900, 1000))
+        self.assertEqual(serve.byte_range('bytes=990-2000', 1000), (990, 1000))
+
+    def test_serves_the_whole_file_without_a_usable_range(self):
+        for header in (None, '', 'items=0-1', 'bytes=0-1,5-6', 'bytes=x-'):
+            with self.subTest(header=header):
+                self.assertIsNone(serve.byte_range(header, 1000))
+
+    def test_refuses_ranges_outside_the_file(self):
+        for header in ('bytes=1000-', 'bytes=5-2', 'bytes=-0'):
+            with self.subTest(header=header):
+                with self.assertRaises(ValueError):
+                    serve.byte_range(header, 1000)
+
+
+@unittest.skipUnless(HAS_EXIFTOOL, 'exiftool missing')
+class ExifThumbnail(unittest.TestCase):
+    def setUp(self):
+        self.folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.folder)
+
+    def photo(self, orientation):
+        thumb = self.folder / 'thumb.jpg'
+        shutil.copy(FIXTURES / 'e2e-a.jpg', thumb)
+        subprocess.run(['exiftool', '-q', '-all=', '-overwrite_original',
+                        str(thumb)], check=True)
+        photo = self.folder / f'photo-{orientation}.jpg'
+        shutil.copy(FIXTURES / 'e2e-b.jpg', photo)
+        subprocess.run(['exiftool', '-q', '-overwrite_original', '-n',
+                        f'-Orientation={orientation}',
+                        f'-ThumbnailImage<={thumb}', str(photo)], check=True)
+        return photo, thumb.read_bytes()
+
+    def test_takes_the_cameras_thumbnail_with_the_photos_orientation(self):
+        photo, thumb = self.photo(6)
+        found = serve.exif_thumbnail(photo)
+        self.assertEqual(found[:2], b'\xff\xd8')
+        self.assertTrue(found.endswith(thumb[2:]))
+        path = self.folder / 'found.jpg'
+        path.write_bytes(found)
+        args = ['exiftool', '-s3', '-n', '-Orientation', str(path)]
+        self.assertEqual(subprocess.check_output(args).strip(), b'6')
+
+    def test_leaves_an_upright_thumbnail_as_it_is(self):
+        photo, thumb = self.photo(1)
+        self.assertEqual(serve.exif_thumbnail(photo), thumb)
+
+    def test_finds_none_in_a_photo_without_one(self):
+        self.assertIsNone(serve.exif_thumbnail(FIXTURES / 'e2e-a.jpg'))
+        self.assertIsNone(serve.exif_thumbnail(FIXTURES / 'clip.mp4'))
+
+
+@unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
+class Thumbnail(unittest.TestCase):
+    def size(self, data):
+        folder = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder)
+        (folder / 't.jpg').write_bytes(data)
+        return probe(folder / 't.jpg')[0]
+
+    def test_draws_photos_upright_and_videos_from_their_first_frame(self):
+        portrait = serve.thumbnail(str(FIXTURES / 'e2e-portrait.jpg'))
+        self.assertEqual(self.size(portrait),
+                         {'codec_type': 'video', 'width': 320, 'height': 240})
+        clip = self.size(serve.thumbnail(str(FIXTURES / 'clip.mp4')))
+        self.assertLessEqual(max(clip['width'], clip['height']),
+                             serve.THUMB_SIZE)
+
+    def test_gives_none_for_a_file_ffmpeg_cannot_read(self):
+        self.assertIsNone(serve.thumbnail(str(FIXTURES / 'broken.mp4')))
+
+
+@unittest.skipUnless(HAS_FFMPEG, 'ffmpeg missing')
+class DriveApi(unittest.TestCase):
+    call = Api.call
+    code = Api.code
+    tearDown = Api.tearDown
+
+    def setUp(self):
+        self.media = media_folder(self)
+        self.server = serve.make_server(0, self.media)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        token = json.loads(self.call('/api/token'))['token']
+        self.headers = {'X-Photoloft-Token': token}
+        self.token = token
+
+    def get(self, path, headers=None):
+        return self.call(path, None, {**self.headers, **(headers or {})})
+
+    def test_lists_drives_and_folders(self):
+        self.assertEqual(json.loads(self.get('/api/drives')),
+                         {'drives': ['CARD']})
+        found = json.loads(self.get('/api/drive/list?drive=CARD&path=DCIM'))
+        self.assertEqual(found['folders'], ['100TEST', 'thumbs'])
+        walk = json.loads(self.get('/api/drive/walk?drive=CARD&path='))
+        self.assertEqual(len(walk['files']), 3)
+
+    def test_serves_a_file_whole_or_in_part(self):
+        path = '/api/drive/file?drive=CARD&path=DCIM/100TEST/C1.MOV'
+        whole = (FIXTURES / 'clip.mp4').read_bytes()
+        self.assertEqual(self.get(path), whole)
+
+        url = f'http://127.0.0.1:{self.port}{path}'
+        headers = {**self.headers, 'Range': 'bytes=-100'}
+        request = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.headers['Content-Range'],
+                             f'bytes {len(whole) - 100}-{len(whole) - 1}/'
+                             f'{len(whole)}')
+            self.assertEqual(response.read(), whole[-100:])
+
+    def test_draws_a_thumbnail_with_the_token_in_the_address(self):
+        path = '/api/drive/thumb?drive=CARD&path=DCIM/100TEST/P2.JPG'
+        data = self.call(f'{path}&token={self.token}')
+        self.assertEqual(data[:2], b'\xff\xd8')
+        self.assertEqual(self.code(path, {}), 403)
+        self.assertEqual(self.code(f'{path}&token=wrong', {}), 403)
+
+    # Other files on a drive stay unread, also behind a photo's name.
+    def test_serves_only_photos_and_videos(self):
+        folder = self.media / 'CARD' / 'DCIM' / '100TEST'
+        (folder / 'P3.jpg').symlink_to(folder / 'notes.txt')
+        for kind in ('file', 'thumb'):
+            for name in ('notes.txt', 'P3.jpg'):
+                with self.subTest(kind=kind, name=name):
+                    url = f'/api/drive/{kind}?drive=CARD&' \
+                        f'path=DCIM/100TEST/{name}&token={self.token}'
+                    self.assertEqual(self.code(url, self.headers), 404)
+
+    # A page leaving a folder stops reading its thumbnails and files: the
+    # server sends nothing more and raises nothing.
+    def test_stops_quietly_when_the_page_stops_reading(self):
+        (self.media / 'CARD' / 'big.mp4').write_bytes(os.urandom(8 << 20))
+        head = '\r\n'.join([
+            'GET /api/drive/file?drive=CARD&path=big.mp4 HTTP/1.1',
+            f'Host: 127.0.0.1:{self.port}',
+            f'X-Photoloft-Token: {self.token}',
+            '', ''
+        ])
+
+        raised, done = [], threading.Event()
+        get = serve.Handler.do_GET
+
+        def getting(handler):
+            try:
+                get(handler)
+            except Exception as error:
+                raised.append(error)
+            finally:
+                done.set()
+
+        with mock.patch.object(serve.Handler, 'do_GET', getting):
+            with socket.create_connection(('127.0.0.1', self.port)) as page:
+                page.sendall(head.encode())
+                page.recv(1024)
+                linger = struct.pack('ii', 1, 0)
+                page.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+            self.assertTrue(done.wait(10))
+        self.assertEqual(raised, [])
+
+    def test_refuses_requests_without_the_token_or_off_the_drive(self):
+        file = '/api/drive/file?drive=CARD&path=DCIM/100TEST/P2.JPG'
+        self.assertEqual(self.code('/api/drives', {}), 403)
+        self.assertEqual(self.code(f'{file}&token={self.token}', {}), 403)
+        for path in ('../CARD/DCIM/100TEST/P2.JPG', '.Trashes/D.jpg'):
+            with self.subTest(path=path):
+                url = f'/api/drive/file?drive=CARD&path={path}'
+                self.assertEqual(self.code(url, self.headers), 404)
+        missing = '/api/drive/list?drive=NONE&path='
+        self.assertEqual(self.code(missing, self.headers), 404)
+        self.assertEqual(self.code('/api/drive/nothing', self.headers), 404)
+        ranged = {**self.headers, 'Range': 'bytes=99999999-'}
+        self.assertEqual(self.code(file, ranged), 416)
+
+
 if __name__ == '__main__':
     unittest.main()

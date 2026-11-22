@@ -3,6 +3,7 @@ import {
   removeSelection
 } from './actions'
 import { commit, redoChange, saveNow, undoChange } from './commit'
+import { checkHeld, selectAllFiles, watchDrives } from './drives'
 import {
   closeEditor, copySettings, endCropDrag, ensureRenderer, finishHorizon,
   jumpTo, loadCurrent, markTrim, moveCropDrag, openPhoto, pasteSettings,
@@ -46,6 +47,7 @@ boot()
 // access; otherwise the start screen asks for one click.
 async function boot() {
   wire(state)
+  void watchDrives(state)
   const remembered = await rememberedLibrary()
   state.remembered = remembered
   render(state)
@@ -87,6 +89,7 @@ function afterRender(state: AppState) {
   revealCurrent(state)
   centreZoom(state)
   hideToastLater(state)
+  checkHeld(state)
 }
 
 // The grid and the stage hide each other. A hidden element reports a
@@ -326,12 +329,14 @@ function escape(state: AppState) {
   else if (state.editor.tool !== 'none') state.editor.tool = 'none'
   else if (state.mode === 'crop') state.mode = 'edit'
   else if (state.mode === 'edit') closeEditor(state)
-  else state.selection = new Set()
+  else if (state.view.kind !== 'drive') state.selection = new Set()
+  else if (state.browser) state.browser.selection = new Set()
   return true
 }
 
 function selectAll(state: AppState) {
-  state.selection = new Set(viewIds(state))
+  if (state.view.kind === 'drive') selectAllFiles(state)
+  else state.selection = new Set(viewIds(state))
   return true
 }
 
