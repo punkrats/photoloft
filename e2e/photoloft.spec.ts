@@ -1020,6 +1020,72 @@ test('imports a folder with all its subfolders, once', async ({ page }) => {
   await expect(page.locator('.cell')).toHaveCount(3)
 })
 
+test('skips imported photos without reading them whole', async ({ page }) => {
+  const toast = page.locator('.toast')
+  await openLibrary(page)
+
+  // Three photos of noise, over 1 MB each, and later a copy of the
+  // first with one byte changed in its header: same size, other content.
+  const sizes = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('big', { create: true })
+    const sizes: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const canvas = new OffscreenCanvas(1000, 750)
+      const ctx = canvas.getContext('2d')!
+      const image = ctx.createImageData(1000, 750)
+      const data = new Uint32Array(image.data.buffer)
+      for (let p = 0; p < data.length; p++) {
+        data[p] = (Math.random() * 0xffffff) | 0xff000000
+      }
+      ctx.putImageData(image, 0, 0)
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg' })
+      const handle = await dir.getFileHandle(`p${i}.jpg`, { create: true })
+      const stream = await handle.createWritable()
+      await stream.write(blob)
+      await stream.close()
+      sizes.push(blob.size)
+    }
+    return sizes
+  })
+  sizes.forEach(size => expect(size).toBeGreaterThan(1_000_000))
+  await importFolder(page, ['big'])
+  await expect(toast).toContainText('Imported 3 photos.')
+
+  const first = await readFile(page, ['big', 'p0.jpg'])
+  expect([first[2], first[3]]).toEqual([0xff, 0xe0])
+  first[15] ^= 1
+  await page.evaluate(async bytes => {
+    const root = await navigator.storage.getDirectory()
+    const dir = await root.getDirectoryHandle('big')
+    const handle = await dir.getFileHandle('changed.jpg', { create: true })
+    const stream = await handle.createWritable()
+    await stream.write(new Uint8Array(bytes))
+    await stream.close()
+  }, [...first])
+
+  // Counts the bytes the page reads from files from here on.
+  await page.evaluate(() => {
+    const page = window as unknown as { bytesRead: number }
+    const read = Blob.prototype.arrayBuffer
+    page.bytesRead = 0
+    Blob.prototype.arrayBuffer = function () {
+      page.bytesRead += this.size
+      return read.call(this)
+    }
+  })
+  await importFolder(page, ['big'])
+  await expect(toast).
+    toContainText('Imported 1 photo. 3 already imported.')
+  await expect(page.locator('.cell')).toHaveCount(4)
+
+  // The changed copy is read whole; the others only at their ends.
+  const read = await page.evaluate(() => {
+    return (window as unknown as { bytesRead: number }).bytesRead
+  })
+  expect(read).toBeLessThan(first.length + 1_000_000)
+})
+
 test('says so when a folder holds no photos or videos', async ({ page }) => {
   await openLibrary(page)
   await writeFile(page, ['papers', 'notes.txt'], 'mine')

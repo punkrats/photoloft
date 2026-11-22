@@ -45,7 +45,10 @@ unless an album has a folder of its own.
   takes single files. Dropping files or folders works too.
 - Photos already in the library (same content, any file name) are
   skipped; those in the Trash come back, and with an album open they
-  join it. An import that changes nothing leaves no undo step. Hidden
+  join it. A file with the size of a library photo is compared by its
+  first and last 64 KB before anything else, so a card imported before
+  is skipped without reading its files whole. An import that changes
+  nothing leaves no undo step. Hidden
   folders, files other than JPEGs and videos, and other programs'
   thumbnail and cache folders (`thumbs`, `thumbnails`, `previews`,
   `cache`, `*.lrdata`, `@eaDir`) are left out.
