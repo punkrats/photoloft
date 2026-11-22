@@ -538,6 +538,84 @@ test('skips an album whose folder cannot be opened', async ({ page }) => {
   expect(await listFiles(page, ['Locked'])).toEqual(['Trip-001.jpg'])
 })
 
+test('exports the selection or the open photo, no album needed', async ({
+  page
+}) => {
+  const dialog = page.locator('.dialog')
+  const title = dialog.locator('.dialog-title')
+  const naming = dialog.locator('.segmented .chip.on')
+  const row = dialog.locator('.form-row', { hasText: 'Folder' })
+  const toast = page.locator('.toast')
+  const library = ['library', 'Exports']
+  const run = async (text: string) => {
+    await dialog.getByRole('button', { name: 'Export' }).click()
+    await expect(toast).toHaveText(text)
+    await dismissToast(page)
+  }
+  await openLibrary(page)
+  await importPhotos(page, ['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await dismissToast(page)
+
+  // Two photos of All photos go to Exports under their own names, at
+  // the size chosen.
+  await cell(page, 'e2e-a.jpg').click()
+  await cell(page, 'e2e-c.jpg').click({ modifiers: ['Control'] })
+  await page.keyboard.press('e')
+  await expect(title).toHaveText('Export 2 photos')
+  await expect(naming).toHaveText(['Photo names'])
+  await expect(row).toContainText('Exports in the library folder')
+  await page.locator('[data-field="size"]').selectOption('custom')
+  await page.locator('[data-field="customSize"]').fill('200')
+  await run('Exported 2 files to Exports.')
+  expect(await listFiles(page, library)).toEqual(['e2e-a.jpg', 'e2e-c.jpg'])
+  const a = await readFile(page, [...library, 'e2e-a.jpg'])
+  expect(jpegInfo(a)).toMatchObject({ width: 200, height: 150 })
+  await expect(page.locator('[data-drop-album]')).toHaveCount(0)
+
+  // The photo open in the editor, numbered under a name typed, into a
+  // folder chosen for it.
+  await cell(page, 'e2e-b.jpg').dblclick()
+  await expect(page.locator('.editor')).toBeVisible()
+  await page.locator('.editor-bar [data-action="export-selection"]').click()
+  await expect(title).toHaveText('Export "e2e-b.jpg"')
+  await expect(page.locator('[data-field="size"]')).toHaveValue('custom')
+  await dialog.getByRole('button', { name: 'Name and number' }).click()
+  await dialog.locator('[data-field="name"]').fill('Beach')
+  await expect(dialog.locator('.form-note')).toHaveText('Beach-001.jpg')
+  await chooseFolder(page, ['Picked'])
+  await run('Exported 1 file to Picked.')
+  expect(await listFiles(page, ['Picked'])).toEqual(['Beach-001.jpg'])
+  await page.keyboard.press('Escape')
+
+  // The next export starts with photo names and the folder chosen, also
+  // after a reload; Use library folder forgets the folder.
+  await saved(page)
+  await page.reload()
+  await expect(page.locator('.sidebar')).toBeVisible()
+  await cell(page, 'e2e-b.jpg').click()
+  await page.locator('.selection-bar [data-action="export-selection"]').click()
+  await expect(naming).toHaveText(['Photo names'])
+  await expect(row).toContainText('Picked')
+  await run('Exported 1 file to Picked.')
+  expect(await listFiles(page, ['Picked'])).
+    toEqual(['Beach-001.jpg', 'e2e-b.jpg'])
+  await page.keyboard.press('e')
+  await row.getByRole('button', { name: 'Use library folder' }).click()
+  await run('Exported 1 file to Exports.')
+  expect(await listFiles(page, library)).
+    toEqual(['e2e-a.jpg', 'e2e-b.jpg', 'e2e-c.jpg'])
+  await page.keyboard.press('e')
+  await expect(row).toContainText('Exports in the library folder')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  // Albums keep their own naming.
+  await page.keyboard.press('g')
+  await pickAlbum(page, 'Rome 2026')
+  await page.locator('[data-drop-album]', { hasText: 'Rome 2026' }).click()
+  await openExport(page)
+  await expect(naming).toHaveText(['Album name and number'])
+})
+
 test('selects with a rectangle and runs Auto on it', async ({ page }) => {
   await openLibrary(page)
   await importPhotos(page, PHOTOS)

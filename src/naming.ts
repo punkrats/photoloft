@@ -7,6 +7,10 @@ const TOKENS = /\{(number|date|time|name)\}/g
 
 type Named = Pick<Photo, 'name' | 'takenAt' | 'importedAt'>
 
+// The name numbered files of photos picked outside an album take when
+// none is typed.
+export const PHOTOS_NAME = 'Photos'
+
 export function sanitizeName(name: string) {
   const clean = name
     .replace(/\s+/g, ' ')

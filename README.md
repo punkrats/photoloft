@@ -79,6 +79,13 @@ unless an album has a folder of its own.
   they stay where they are. When the folder is gone or access is
   refused, that album is skipped and the toast names the folder to
   choose again. Exporting several albums sends each to its own folder.
+- Export (selection bar, editor header, `E`) exports the selection, or
+  the photo shown in the editor, without putting it in an album. The
+  dialog starts with the photos' own names each time; Name and number
+  numbers them under the name typed. The files go to `Exports` in the
+  library folder, or to a folder picked with Choose…, which the next
+  export of photos starts with. Size, file size limit, quality,
+  location and video settings are the same for photos and albums.
 - Renames and album exports with photo names give each name once, case
   ignored: the first of equal names keeps it, and each repeat gets the
   lowest free -2, -3, skipping any name already in the list.

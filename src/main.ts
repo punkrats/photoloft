@@ -377,6 +377,10 @@ function gridKey(state: AppState, key: string) {
     clicks['open-info'](state, {}, new Event('key'))
     return true
   }
+  if (key === 'e' && state.selection.size) {
+    clicks['export-selection'](state, {}, new Event('key'))
+    return true
+  }
   return false
 }
 
@@ -385,6 +389,7 @@ function editorKey(state: AppState, key: string) {
     ArrowLeft: () => step(state, -1),
     ArrowRight: () => step(state, 1),
     g: () => clicks['open-picker'](state, {}, new Event('key')),
+    e: () => clicks['export-selection'](state, {}, new Event('key')),
     c: () => clicks['crop-tool'](state, {}, new Event('key')),
     z: () => clicks['toggle-zoom'](state, {}, new Event('key')),
     s: () => clicks.star(state, {}, new Event('key')),

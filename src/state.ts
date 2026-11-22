@@ -17,12 +17,14 @@ import type { Histogram } from './ui/histogram'
 export type Mode = 'grid' | 'edit' | 'crop'
 type Counts = ReturnType<typeof libraryCounts>
 
-// The Export dialog. `folder` is the name of the folder picked for the
-// album, or null for Exports in the library folder; `picked` is a
-// folder newly chosen in the dialog. Like the other fields they take
-// effect when Export is pressed.
+// The Export dialog, for albums or, with `photoIds`, for photos picked
+// in the order shown. `folder` is the name of the folder picked for the
+// album or the photos, or null for Exports in the library folder;
+// `picked` is a folder newly chosen in the dialog. Like the other
+// fields they take effect when Export is pressed.
 export type ExportForm = {
   albumIds: string[]
+  photoIds: string[]
   name: string
   start: number
   naming: 'album' | 'original'

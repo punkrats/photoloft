@@ -250,6 +250,14 @@ function selectionBar(state: AppState, album: Album | null) {
         </button>
         <button
           class="button"
+          data-action="export-selection"
+          ?disabled=${state.progress !== null}
+        >
+          <i class="icon-download"></i> Export
+          <kbd>E</kbd>
+        </button>
+        <button
+          class="button"
           data-action="paste-settings"
           ?disabled=${!state.clipboard}
         >

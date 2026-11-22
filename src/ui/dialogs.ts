@@ -9,7 +9,8 @@ import {
 } from '../library'
 import type { Meta } from '../meta'
 import {
-  albumFileNames, previewNames, renamedNames, sanitizeName, splitExtension
+  albumFileNames, PHOTOS_NAME, previewNames, renamedNames, sanitizeName,
+  splitExtension
 } from '../naming'
 import {
   targets, type AlbumPick, type AppState, type Dialog, type ExportForm,
@@ -48,6 +49,7 @@ const SHORTCUTS: [string, string][] = [
   ['Ctrl+A, Esc', 'Select all, clear selection'],
   ['G', 'Add the selection or the open photo to an album'],
   ['R', 'Rename the selection or the open photo'],
+  ['E', 'Export the selection or the open photo'],
   ['Enter / Esc', 'In a dialog: confirm / cancel'],
   ['Up / Down, Tab', 'In a dialog: next or previous field'],
   ['Space on a tick box', 'Tick or untick'],
@@ -223,26 +225,35 @@ function picker(state: AppState, lib: Library, d: Picker) {
 
 // ─── Export ──────────────────────────────────────────────────────────
 
+// For albums, or for photos picked (`photoIds`), which are named,
+// numbered and sent to a folder like one album.
 function exportForm(lib: Library, form: ExportForm) {
   const albums = form.albumIds
     .map(id => lib.albums.find(a => a.id === id))
     .filter(a => a !== undefined)
+  const photos = form.photoIds.filter(id => lib.photos[id])
   const single = albums.length === 1 ? albums[0] : null
-  const heading = single
-    ? `Export "${single.name}"`
-    : `Export ${albums.length} albums`
+  const ids = photos.length
+    ? photos
+    : albums.flatMap(a => viewPhotos(lib, { kind: 'album', id: a.id }, 'date'))
+  const numbered = photos.length ? 'Name and number' : 'Album name and number'
+  const one = photos.length > 0 || single !== null
+  const fallback = single?.name ?? PHOTOS_NAME
 
   return html`
-    <h3 class="dialog-title">${heading}</h3>
+    <h3 class="dialog-title">${exportHeading(lib, photos, albums)}</h3>
     <div class="form">
       <div class="form-row">
         <span class="form-label">File names</span>
         <div class="segmented">
-          ${segment(form, 'naming', 'album', 'Album name and number')}
+          ${segment(form, 'naming', 'album', numbered)}
           ${segment(form, 'naming', 'original', 'Photo names')}
         </div>
       </div>
-      ${form.naming === 'album' ? naming(form, single, lib) : nothing}
+      ${form.naming === 'album' && one
+        ? naming(form, ids.length, fallback)
+        : nothing}
+      ${form.naming === 'album' && !one ? startRow(form) : nothing}
       <label class="form-row">
         <span class="form-label">Size</span>
         <select data-change="export-field" data-field="size">
@@ -294,8 +305,8 @@ function exportForm(lib: Library, form: ExportForm) {
           Remove camera locations
         </span>
       </label>
-      ${hasVideos(lib, albums.map(a => a.id)) ? videoRows(form) : nothing}
-      ${single
+      ${ids.some(id => lib.photos[id].video) ? videoRows(form) : nothing}
+      ${one
         ? folderRow(single, form)
         : html`<p class="form-note">Each album is saved to its own folder.</p>`}
     </div>
@@ -379,10 +390,18 @@ function bitrateRows(form: ExportForm) {
   `
 }
 
-// Where the album's files go: the folder picked for it, or its folder
-// under Exports.
-function folderRow(album: Album, form: ExportForm) {
-  const exports = `Exports/${sanitizeName(album.name)} in the library folder`
+function exportHeading(lib: Library, photos: string[], albums: Album[]) {
+  if (photos.length === 1) return `Export "${lib.photos[photos[0]].name}"`
+  if (photos.length) return `Export ${photos.length} photos`
+  if (albums.length === 1) return `Export "${albums[0].name}"`
+  return `Export ${albums.length} albums`
+}
+
+// Where the files go: the folder picked, or the album's folder under
+// Exports, or Exports itself for photos.
+function folderRow(album: Album | null, form: ExportForm) {
+  const place = album ? `Exports/${sanitizeName(album.name)}` : 'Exports'
+  const exports = `${place} in the library folder`
   return html`
     <div class="form-row">
       <span class="form-label">Folder</span>
@@ -401,39 +420,37 @@ function folderRow(album: Album, form: ExportForm) {
   `
 }
 
-function naming(form: ExportForm, single: { id: string } | null, lib: Library) {
-  const view = { kind: 'album' as const, id: single?.id ?? '' }
-  const count = Math.max(1, viewPhotos(lib, view, 'date').length)
-  const names = albumFileNames(form.name || 'Album', count, form.start)
+// The name, Start at and the first and last name, for one album or for
+// photos; `count` is how many files they make, and an empty name gives
+// way to `fallback`, as in the export.
+function naming(form: ExportForm, count: number, fallback: string) {
+  const base = form.name.trim() || fallback
+  const start = Math.max(0, Math.round(form.start))
+  const names = albumFileNames(base, Math.max(1, count), start)
   const preview = count > 1 ? `${names[0]} to ${names.at(-1)}` : names[0]
 
   return html`
-    ${single
-      ? html`
-        <label class="form-row">
-          <span class="form-label">Name</span>
-          <input
-            class="input"
-            .value=${live(form.name)}
-            data-input="export-field"
-            data-field="name"
-          >
-        </label>
-      `
-      : nothing}
+    <label class="form-row">
+      <span class="form-label">Name</span>
+      <input
+        class="input"
+        .value=${live(form.name)}
+        data-input="export-field"
+        data-field="name"
+      >
+    </label>
+    ${startRow(form)}
+    <p class="form-note">${preview}</p>
+  `
+}
+
+function startRow(form: ExportForm) {
+  return html`
     <label class="form-row">
       <span class="form-label">Start at</span>
       ${numberField('start', form.start, '')}
     </label>
-    ${single ? html`<p class="form-note">${preview}</p>` : nothing}
   `
-}
-
-function hasVideos(lib: Library, albumIds: string[]) {
-  return albumIds.some(id => {
-    const ids = viewPhotos(lib, { kind: 'album', id }, 'date')
-    return ids.some(photo => lib.photos[photo].video)
-  })
 }
 
 function segment(

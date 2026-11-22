@@ -7,8 +7,9 @@ import type { Progress } from './state'
 // `seq` numbers the saves and `repairs` names the one-time repairs the
 // library has had. Both are saved beside the library, outside the
 // snapshots undo restores. `folders` holds the folder picked for each
-// album's exports, by album id; handles cannot go into the library
-// file, so they are kept in IndexedDB (`saveAlbumFolders`).
+// album's exports, by album id, and under `SELECTION_FOLDER` the one
+// for exports of selected photos; handles cannot go into the library
+// file, so they are kept in IndexedDB (`saveExportFolders`).
 export type Dirs = {
   root: FileSystemDirectoryHandle
   data: FileSystemDirectoryHandle
@@ -27,6 +28,9 @@ const LIBRARY_PICKER = 'lightbox-library'
 const IMPORT_PICKER = 'lightbox-import'
 
 const EXPORT_PICKER = 'photoloft-export'
+
+// Album ids are 12 hex digits, so this key never names an album.
+export const SELECTION_FOLDER = 'selection'
 
 const STORE = 'handles'
 const HANDLE_KEY = 'library'
@@ -89,9 +93,9 @@ function request<T>(req: IDBRequest<T>) {
   })
 }
 
-// ─── Album export folders ────────────────────────────────────────────
+// ─── Export folders ──────────────────────────────────────────────────
 
-// What IndexedDB keeps of the album folders: one entry per library
+// What IndexedDB keeps of the export folders: one entry per library
 // folder, told apart with `isSameEntry`, so a library never sees the
 // folders of another, a copy of it with the same album ids included.
 type FolderEntry = {
@@ -110,13 +114,14 @@ async function rememberedFolders(root: FileSystemDirectoryHandle) {
       if (await entry.library.isSameEntry(root)) return entry.folders
     }
   } catch {
-    // Unreadable; albums with a picked folder ask for it again.
+    // Unreadable; albums with a picked folder ask for it again, and
+    // selections go to Exports.
   }
   return {}
 }
 
 // Replaces this library's entry.
-export async function saveAlbumFolders(dirs: Dirs) {
+export async function saveExportFolders(dirs: Dirs) {
   try {
     const others: FolderEntry[] = []
     for (const entry of await folderEntries()) {
@@ -128,7 +133,7 @@ export async function saveAlbumFolders(dirs: Dirs) {
     await request(tx.objectStore(STORE).put(entries, FOLDERS_KEY))
   } catch {
     // Only the next session misses it: its albums with a picked folder
-    // ask for it again.
+    // ask for it again, and selections go to Exports.
   }
 }
 
@@ -246,10 +251,12 @@ export async function deletePhotoFiles(dirs: Dirs, photos: Photo[]) {
 
 // ─── Exports ─────────────────────────────────────────────────────────
 
+export async function exportsFolder(dirs: Dirs) {
+  return dirs.root.getDirectoryHandle('Exports', { create: true })
+}
+
 export async function exportFolder(dirs: Dirs, folder: string) {
-  const exports = await dirs.root.getDirectoryHandle('Exports', {
-    create: true
-  })
+  const exports = await exportsFolder(dirs)
   return exports.getDirectoryHandle(folder, { create: true })
 }
 

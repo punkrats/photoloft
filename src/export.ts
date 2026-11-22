@@ -9,41 +9,60 @@ import {
 } from './library'
 import { encodeWithin } from './limit'
 import {
-  albumFileNames, originalFileNames, sanitizeName, withExtension
+  albumFileNames, originalFileNames, PHOTOS_NAME, sanitizeName, withExtension
 } from './naming'
 import { render } from './render'
 import { exportVideo } from './video-export'
 import {
-  showToast, type AppState, type ExportForm, type Progress
+  currentAlbum, showToast, type AppState, type ExportForm, type Progress
 } from './state'
 import {
-  exportFolder, openFolder, readOriginal, removeExportFolderIfEmpty,
-  removeFiles, saveAlbumFolders, writeFile, type Dirs
+  exportFolder, exportsFolder, openFolder, readOriginal,
+  removeExportFolderIfEmpty, removeFiles, saveExportFolders,
+  SELECTION_FOLDER, writeFile, type Dirs
 } from './storage'
 
 const PRESET_SIZES = ['3840', '2560', '2048', '1600', '1080']
 const PRESET_LIMITS = ['500000', '1000000', '2000000', '5000000']
 const VIDEO_SIDES = [720, 1080, 0] as const
 
-// An album to export and the folder picked for it, or null for its
-// folder under Exports.
-type Target = { album: Album, picked: FileSystemDirectoryHandle | null }
+// What one export writes: an album's photos or the photos picked, and
+// the folder picked for them, or null for their place under Exports.
+type Target = {
+  album: Album | null
+  ids: string[]
+  picked: FileSystemDirectoryHandle | null
+}
 
-export function exportDialog(state: AppState, albumIds: string[]) {
+// Opens the dialog for albums, or for photos picked. Photos start with
+// their own names each time; numbered, they take the open album's name,
+// else `PHOTOS_NAME`.
+export function exportDialog(
+  state: AppState, albumIds: string[], photoIds: string[] = []
+) {
   const lib = state.library
-  if (!lib || albumIds.length === 0 || state.progress) return
+  const dirs = state.dirs
+  const empty = albumIds.length + photoIds.length === 0
+  if (!lib || !dirs || empty || state.progress) return
 
   const s = lib.exportSettings
-  const album = albumIds.length === 1
-    ? lib.albums.find(a => a.id === albumIds[0])
-    : null
+  const photos = photoIds.length > 0
+  const album = photos
+    ? currentAlbum(state)
+    : albumIds.length === 1
+      ? lib.albums.find(a => a.id === albumIds[0])
+      : null
+  const folder = photos
+    ? dirs.folders[SELECTION_FOLDER]?.name ?? null
+    : album?.exportFolder ?? null
   const sizeKey = s.longEdge ? String(s.longEdge) : 'original'
   const limitKey = s.maxBytes ? String(s.maxBytes) : 'none'
   const form: ExportForm = {
     albumIds,
-    name: album ? album.exportName ?? album.name : '',
+    photoIds,
+    name: album ? album.exportName ?? album.name : photos ? PHOTOS_NAME : '',
     start: 1,
-    naming: s.naming,
+    naming: photos ? 'original' : s.naming,
     size: PRESET_SIZES.includes(sizeKey) || !s.longEdge ? sizeKey : 'custom',
     customSize: s.longEdge ?? 2048,
     limit: PRESET_LIMITS.includes(limitKey) || !s.maxBytes
@@ -57,11 +76,16 @@ export function exportDialog(state: AppState, albumIds: string[]) {
     videoCrf: s.videoCrf,
     videoBitrate: s.videoBitrate,
     videoTwoPass: s.videoTwoPass,
-    folder: album?.exportFolder ?? null,
+    folder,
     picked: null
   }
   state.dialog = { kind: 'export', form }
   render(state)
+}
+
+// The key of the dialog's folder in `dirs.folders`.
+export function folderKey(form: ExportForm) {
+  return form.photoIds.length ? SELECTION_FOLDER : form.albumIds[0]
 }
 
 export function settingsOf(form: ExportForm): ExportSettings {
@@ -88,37 +112,37 @@ export function settingsOf(form: ExportForm): ExportSettings {
   }
 }
 
+// The settings become the shared ones, except that photos picked leave
+// the albums' choice of file names alone.
 export async function runExport(state: AppState, form: ExportForm) {
   if (!state.library || !state.dirs || state.progress) return
 
   const dirs = state.dirs
   const settings = settingsOf(form)
-  let lib = setExportSettings(state.library, settings)
+  const naming = form.photoIds.length
+    ? state.library.exportSettings.naming
+    : settings.naming
+  let lib = setExportSettings(state.library, { ...settings, naming })
   if (form.albumIds.length === 1) lib = albumChoices(lib, form)
-  if (form.picked) dirs.folders[form.albumIds[0]] = form.picked
+  const moved = keepFolder(dirs, form)
   applyBookkeeping(state, lib)
   state.dialog = null
 
-  const albums = form.albumIds
-    .map(id => lib.albums.find(a => a.id === id))
-    .filter((a): a is Album => a !== undefined)
   const cancel = new AbortController()
   const progress = { label: 'Exporting', done: 0, total: 0, cancel }
   state.progress = progress
   render(state)
 
-  const { targets, closed } = await openTargets(dirs, albums)
-  if (form.picked) await saveAlbumFolders(dirs)
-  const count = (t: Target) =>
-    viewPhotos(lib, { kind: 'album', id: t.album.id }, 'date').length
-  progress.total = targets.reduce((n, t) => n + count(t), 0)
+  const { targets, closed } = await openTargets(dirs, lib, form)
+  if (moved) await saveExportFolders(dirs)
+  progress.total = targets.reduce((n, t) => n + t.ids.length, 0)
   render(state)
 
   let over = 0
   const errors: string[] = []
   for (const target of targets) {
     if (cancel.signal.aborted) break
-    const result = await exportAlbum(state, target, form, settings, progress)
+    const result = await exportTarget(state, target, form, settings, progress)
     over += result.over
     errors.push(...result.errors)
   }
@@ -142,21 +166,36 @@ function albumChoices(lib: Library, form: ExportForm) {
   return moved ? setExportRecord(next, id, { folder: null, files: [] }) : next
 }
 
+// Keeps the folder picked in the dialog for its album or for photos,
+// and says whether `dirs.folders` changed. The photos' folder is known
+// by its handle alone, so Use library folder forgets the handle.
+function keepFolder(dirs: Dirs, form: ExportForm) {
+  const key = folderKey(form)
+  if (form.picked) {
+    dirs.folders[key] = form.picked
+    return true
+  }
+  if (key !== SELECTION_FOLDER || form.folder || !dirs.folders[key]) {
+    return false
+  }
+  delete dirs.folders[key]
+  return true
+}
+
 // Opens the picked folders before anything else is awaited: after a
 // browser restart the browser asks for access, and its prompt shows
 // only while the press still counts as a user gesture. A handle is used
-// only under the name the dialog showed. Albums whose folder cannot be
+// only under the name the dialog showed. Exports whose folder cannot be
 // opened stay out; `closed` names their folders.
-async function openTargets(dirs: Dirs, albums: Album[]) {
+async function openTargets(dirs: Dirs, lib: Library, form: ExportForm) {
   const targets: Target[] = []
   const closed: string[] = []
-  for (const album of albums) {
-    const name = album.exportFolder
-    const handle = dirs.folders[album.id]
+  for (const { album, ids, key, name } of sources(lib, form)) {
+    const handle = dirs.folders[key]
     if (!name) {
-      targets.push({ album, picked: null })
+      targets.push({ album, ids, picked: null })
     } else if (handle?.name === name && (await openFolder(handle))) {
-      targets.push({ album, picked: handle })
+      targets.push({ album, ids, picked: handle })
     } else {
       closed.push(name)
     }
@@ -164,29 +203,48 @@ async function openTargets(dirs: Dirs, albums: Album[]) {
   return { targets, closed }
 }
 
-async function exportAlbum(
+// What the dialog exports: the photos picked, or each album's photos,
+// with the key of their folder in `dirs.folders` and its name.
+function sources(lib: Library, form: ExportForm) {
+  if (form.photoIds.length) {
+    const ids = form.photoIds.filter(id => lib.photos[id])
+    return [{ album: null, ids, key: SELECTION_FOLDER, name: form.folder }]
+  }
+
+  return form.albumIds
+    .map(id => lib.albums.find(a => a.id === id))
+    .filter((a): a is Album => a !== undefined)
+    .map(album => ({
+      album,
+      ids: viewPhotos(lib, { kind: 'album', id: album.id }, 'date'),
+      key: album.id,
+      name: album.exportFolder ?? null
+    }))
+}
+
+async function exportTarget(
   state: AppState, target: Target, form: ExportForm,
   settings: ExportSettings, progress: Progress
 ) {
   const { album, picked } = target
   const dirs = state.dirs!
   const lib = state.library!
-  const ids = viewPhotos(lib, { kind: 'album', id: album.id }, 'date')
-  const base = form.albumIds.length === 1
-    ? form.name.trim() || album.name
-    : album.exportName ?? album.name
-  const photos = ids.map(id => lib.photos[id])
+  const photos = target.ids
+    .map(id => lib.photos[id])
+    .filter(p => p !== undefined)
+  const start = Math.max(0, Math.round(form.start))
   const names = (settings.naming === 'album'
-    ? albumFileNames(base, ids.length, Math.max(0, Math.round(form.start)))
+    ? albumFileNames(baseName(form, album), photos.length, start)
     : originalFileNames(photos.map(p => {
       return p.video ? withExtension(p.name, 'mp4') : p.name
     })))
     .map((name, i) => (photos[i].video ? withExtension(name, 'mp4') : name))
 
-  const folder = sanitizeName(album.name)
-  const dir = picked ?? (await exportFolder(dirs, folder))
+  const folder = album ? sanitizeName(album.name) : null
+  const dir = picked ??
+    (folder ? await exportFolder(dirs, folder) : await exportsFolder(dirs))
   const place = picked ? null : folder
-  await clearPrevious(dirs, lib.exports[album.id], place, dir)
+  if (album) await clearPrevious(dirs, lib.exports[album.id], place, dir)
 
   const written: string[] = []
   const errors: string[] = []
@@ -209,9 +267,20 @@ async function exportAlbum(
     render(state)
   }
 
-  const record = { folder: place, files: written }
-  applyBookkeeping(state, setExportRecord(state.library!, album.id, record))
+  if (album) {
+    const record = { folder: place, files: written }
+    applyBookkeeping(state, setExportRecord(state.library!, album.id, record))
+  }
   return { over, errors }
+}
+
+// The name numbered files take: the one typed in the dialog of one
+// album or of photos, else the album's export name.
+function baseName(form: ExportForm, album: Album | null) {
+  const typed = form.name.trim()
+  if (!album) return typed || PHOTOS_NAME
+  if (form.albumIds.length === 1) return typed || album.name
+  return album.exportName ?? album.name
 }
 
 async function exportClip(
@@ -314,16 +383,17 @@ function report(
   return parts.join(' ')
 }
 
-// Where the files went: one album's folder, Exports for several albums
-// there, and nothing to name when some of them went to picked folders.
+// Where the files went: one album's folder or Exports for photos,
+// Exports for several albums there, and nothing to name when some of
+// them went to picked folders.
 function where(targets: Target[]) {
   if (targets.length > 1) {
     return targets.some(t => t.picked) ? '' : ' to Exports'
   }
 
   const { album, picked } = targets[0]
-  const exports = `Exports/${sanitizeName(album.name)}`
-  return ` to ${picked ? picked.name : exports}`
+  if (picked) return ` to ${picked.name}`
+  return album ? ` to Exports/${sanitizeName(album.name)}` : ' to Exports'
 }
 
 function unopened(names: string[]) {

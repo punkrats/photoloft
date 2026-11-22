@@ -94,6 +94,14 @@ function bar(state: AppState, lib: Library, id: string) {
         >
           <i class="icon-book-image"></i>
         </button>
+        <button
+          class="icon-button"
+          data-action="export-selection"
+          title="Export (E)"
+          ?disabled=${state.progress !== null}
+        >
+          <i class="icon-download"></i>
+        </button>
       `}
       ${toggle(photo.starred, 'star', 'icon-star', 'Star to keep (S)')}
       ${toggle(state.before, 'toggle-before', 'icon-square-split-horizontal',

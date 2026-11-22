@@ -7,7 +7,7 @@ import {
   resetCrop, resetSlider, resetTrim, rotate, seek, setAspect, setSlider,
   swapOrientation, togglePlay
 } from './editing'
-import { exportDialog, runExport } from './export'
+import { exportDialog, folderKey, runExport } from './export'
 import { formatList } from './format'
 import { emptyHistory } from './history'
 import { importEntries } from './importer'
@@ -144,15 +144,15 @@ async function chooseFolder(state: AppState) {
   }
 }
 
-// The folder becomes the album's when Export is pressed. Choosing the
-// album's own folder again keeps its handle, and with it the cleanup of
-// the last export there.
-async function chooseAlbumFolder(state: AppState) {
+// The folder becomes the album's, or the one for photos picked, when
+// Export is pressed. Choosing the album's own folder again keeps its
+// handle, and with it the cleanup of the last export there.
+async function chooseFormFolder(state: AppState) {
   const d = state.dialog
   if (d?.kind !== 'export' || !state.dirs) return
 
   const form = d.form
-  const own = state.dirs.folders[form.albumIds[0]]
+  const own = state.dirs.folders[folderKey(form)]
   try {
     const handle = await chooseExportFolder()
     const same = own ? await own.isSameEntry(handle) : false
@@ -429,6 +429,9 @@ export const clicks: Record<string, Handler> = {
     const album = currentAlbum(state)
     if (album) exportDialog(state, [album.id])
   },
+  'export-selection': state => {
+    if (state.view.kind !== 'trash') exportDialog(state, [], targets(state))
+  },
   'export-all': state => {
     const ids = state.library!.albums.map(a => a.id)
     if (ids.length) exportDialog(state, ids)
@@ -598,7 +601,7 @@ export const clicks: Record<string, Handler> = {
     const form = state.dialog.form as Record<string, unknown>
     form[data.field!] = data.value
   },
-  'export-choose-folder': state => void chooseAlbumFolder(state),
+  'export-choose-folder': state => void chooseFormFolder(state),
   'export-library-folder': state => {
     if (state.dialog?.kind !== 'export') return
     state.dialog.form.folder = null

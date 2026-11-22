@@ -4,6 +4,7 @@ import type { ExportForm } from '../src/state'
 
 const FORM: ExportForm = {
   albumIds: ['a'],
+  photoIds: [],
   name: 'Trip',
   start: 1,
   naming: 'album',
