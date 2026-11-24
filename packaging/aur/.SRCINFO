@@ -18,6 +18,6 @@ pkgbase = photoloft
 	depends = python
 	depends = systemd
 	source = photoloft-0.1.0.tar.gz::https://github.com/punkrats/photoloft/archive/refs/tags/v0.1.0.tar.gz
-	sha256sums = SKIP
+	sha256sums = 2b234185ab7b3d92d0c6f0111874633f876da920ca1f5d572eb9d1b96ed787ec
 
 pkgname = photoloft

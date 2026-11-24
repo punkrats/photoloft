@@ -11,7 +11,7 @@ depends=('bash' 'chromium' 'curl' 'ffmpeg' 'hicolor-icon-theme' 'python'
   'systemd')
 makedepends=('nodejs' 'npm')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('2b234185ab7b3d92d0c6f0111874633f876da920ca1f5d572eb9d1b96ed787ec')
 
 build() {
   cd "$pkgname-$pkgver"
